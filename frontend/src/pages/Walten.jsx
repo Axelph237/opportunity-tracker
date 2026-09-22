@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Dropdown from '../components/Dropdown'
 import Popover from '../components/Popover'
 import Tooltip from '../components/Tooltip'
+import Markdown from '../components/Markdown'
 import PageLayout from '../components/PageLayout'
 import { useConfirm } from '../components/ConfirmDialog'
 import {
@@ -136,11 +137,7 @@ function Turn({ message, agentName, agentIcon, onApprove, onReject, onUndo, busy
           <p className="rounded border border-error/60 bg-error/10 px-3 py-2 text-error">{message.error}</p>
         ) : null}
 
-        {message.content ? (
-          <p className="whitespace-pre-wrap break-words leading-relaxed text-on-surface">
-            {message.content}
-          </p>
-        ) : null}
+        {message.content ? <Markdown>{message.content}</Markdown> : null}
 
         <AuditLog calls={message.tool_calls} />
 

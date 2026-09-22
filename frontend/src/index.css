@@ -147,7 +147,11 @@
   --color-on-error-container: var(--md-sys-color-on-error-container);
 
   --font-sans: 'Satoshi', system-ui, -apple-system, sans-serif;
+  /* `font-mono` is Satoshi on purpose: the data columns want its tabular
+     figures, not a typewriter face. Actual code needs an actual monospace,
+     which is what `font-code` is for. */
   --font-mono: 'Satoshi', system-ui, -apple-system, sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 
   --text-data: 0.75rem;
 }
@@ -276,6 +280,20 @@
   .btn[aria-disabled='true'] {
     opacity: 0.45;
     cursor: not-allowed;
+  }
+
+  /* Inline code in the agent's replies gets a chip treatment; the same element
+     inside a fenced block must not, or every line gets its own border. */
+  .md-code {
+    border: 1px solid var(--md-sys-color-outline-variant);
+    background-color: var(--md-sys-color-surface-container);
+    border-radius: 4px;
+    padding: 1px 4px;
+  }
+  pre .md-code {
+    border: 0;
+    background-color: transparent;
+    padding: 0;
   }
 
   .btn-primary {
