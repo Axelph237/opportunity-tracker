@@ -14,6 +14,32 @@ It runs entirely on your own machine. Your resume never leaves it.
 
 ---
 
+## Contents
+
+- [What it does](#what-it-does)
+- [Before you start](#before-you-start)
+- [Install](#install) · [First run](#first-run)
+- [Using it](#using-it)
+  - [Your shortlist](#your-shortlist)
+  - [Checking your fit](#checking-your-fit)
+  - [The bigger picture](#the-bigger-picture)
+  - [Tracking applications](#tracking-applications)
+  - [Managing sources](#managing-sources) — [finding new ones](#letting-claude-find-sources), [when one stops working](#when-a-source-stops-working)
+  - [Keeping it accurate](#keeping-it-accurate)
+  - [Dead links never reach your table](#dead-links-never-reach-your-table)
+  - [Scheduled scraping](#scheduled-scraping)
+- [Your assistant](#your-assistant)
+  - [Two modes](#two-modes)
+  - [Nothing changes until you say so](#nothing-changes-until-you-say-so)
+  - [Undoing its work](#undoing-its-work)
+- [Settings](#settings)
+- [Privacy](#privacy)
+- [Troubleshooting](#troubleshooting)
+- [For developers](#for-developers)
+- [License](#license)
+
+---
+
 ## What it does
 
 **Watches sources for you.** Add a job board, a company careers page or a research
