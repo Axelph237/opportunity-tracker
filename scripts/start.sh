@@ -3,9 +3,12 @@
 # Run the app: one process, one port. FastAPI answers /api and serves the
 # compiled interface from frontend/dist for everything else.
 #
-#   ./scripts/start.sh              # http://localhost:8000
-#   ./scripts/start.sh --port 9000
-#   ./scripts/start.sh --no-open    # do not launch a browser
+# Runnable either way — install.sh puts an `opportunity-tracker` command on
+# your PATH that forwards straight to this script:
+#
+#   opportunity-tracker              # http://localhost:8000
+#   opportunity-tracker --port 9000
+#   opportunity-tracker --no-open    # do not launch a browser
 #
 # For frontend development use ./scripts/dev.sh instead — it adds the Vite dev
 # server so changes appear without a rebuild.
@@ -21,7 +24,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --port) PORT="$2"; shift 2 ;;
     --no-open) OPEN=0; shift ;;
-    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done

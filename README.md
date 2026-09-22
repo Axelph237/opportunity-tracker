@@ -16,27 +16,27 @@ It runs entirely on your own machine. Your resume never leaves it.
 
 ## Contents
 
-- [What it does](#what-it-does)
-- [Before you start](#before-you-start)
-- [Install](#install) · [First run](#first-run)
-- [Using it](#using-it)
-  - [Your shortlist](#your-shortlist)
-  - [Checking your fit](#checking-your-fit)
-  - [The bigger picture](#the-bigger-picture)
-  - [Tracking applications](#tracking-applications)
-  - [Managing sources](#managing-sources) — [finding new ones](#letting-claude-find-sources), [when one stops working](#when-a-source-stops-working)
-  - [Keeping it accurate](#keeping-it-accurate)
-  - [Dead links never reach your table](#dead-links-never-reach-your-table)
-  - [Scheduled scraping](#scheduled-scraping)
-- [Your assistant](#your-assistant)
-  - [Two modes](#two-modes)
-  - [Nothing changes until you say so](#nothing-changes-until-you-say-so)
-  - [Undoing its work](#undoing-its-work)
-- [Settings](#settings)
-- [Privacy](#privacy)
-- [Troubleshooting](#troubleshooting)
-- [For developers](#for-developers)
-- [License](#license)
+- [Opportunity Tracker](#opportunity-tracker)
+  - [Contents](#contents)
+  - [What it does](#what-it-does)
+  - [Before you start](#before-you-start)
+  - [Install](#install)
+  - [Using it](#using-it)
+    - [Your shortlist](#your-shortlist)
+    - [Checking your fit](#checking-your-fit)
+    - [The bigger picture](#the-bigger-picture)
+    - [Tracking applications](#tracking-applications)
+    - [Managing sources](#managing-sources)
+      - [Letting Claude find sources](#letting-claude-find-sources)
+      - [When a source stops working](#when-a-source-stops-working)
+    - [Scheduled scraping](#scheduled-scraping)
+  - [Your assistant](#your-assistant)
+    - [Two modes](#two-modes)
+    - [Build Mode: continued](#build-mode-continued)
+    - [Undoing its work](#undoing-its-work)
+  - [Troubleshooting](#troubleshooting)
+  - [For developers](#for-developers)
+  - [License](#license)
 
 ---
 
@@ -69,7 +69,7 @@ for new sources, write reports — and, if you let it, modify the app itself.
 
 ## Before you start
 
-You will need four things:
+The following are external dependencies required for Opportunity Tracker to run.
 
 | | Why | Get it |
 |---|---|---|
@@ -78,9 +78,6 @@ You will need four things:
 | **Node 18+** | Builds the interface | <https://nodejs.org/en/download> |
 | **git** | Optional — lets the built-in agent undo its own changes | Usually already installed |
 
-**There is no API key to buy or configure.** Everything goes through the Claude
-Code login you already have, so scoring a listing costs you nothing beyond your
-existing subscription.
 
 ---
 
@@ -90,15 +87,15 @@ existing subscription.
 git clone https://github.com/Axelph237/opportunity-tracker.git
 cd opportunity-tracker
 ./scripts/install.sh
-./scripts/start.sh
+opportunity-tracker
 ```
 
 That is the whole thing. The installer sets up Python, builds the interface and
-downloads the fonts; `start.sh` opens <http://localhost:8000>.
+downloads the fonts; `opportunity-tracker` opens <http://localhost:8000>.
 
 Re-running `./scripts/install.sh` is also how you upgrade after a `git pull`.
 
-### First run
+<!-- ### First run
 
 The app walks you through five short steps, saving as it goes — quitting halfway
 keeps whatever you already answered.
@@ -112,7 +109,7 @@ keeps whatever you already answered.
 4. **Add your resume.** A PDF or a text file. This is what every listing is scored
    against.
 5. **Run a first search.** Optionally scrape the 20 starter sources and ask Claude
-   to suggest more. Both run in the background while you look around.
+   to suggest more. Both run in the background while you look around. -->
 
 ---
 
@@ -175,11 +172,9 @@ now** does all of them, with a live progress log.
 #### Letting Claude find sources
 
 **Discover new sources** searches the web for boards worth adding. Give it a focus
-if you like ("superconducting qubit startups") and a count. It skips anything you
+if you like and a count. It skips anything you
 already track and comes back with proposals, each with a rationale and a
-confidence score — usually in one to three minutes.
-
-Nothing is scraped until you approve it. Rejecting a proposal also keeps that URL
+confidence score — usually in one to three minutes. Rejecting a proposal also keeps that URL
 out of future discovery runs.
 
 #### When a source stops working
@@ -199,36 +194,6 @@ clears the moment one succeeds. Editing the URL clears it immediately too — wh
 is the usual fix, since many sites that block scrapers still publish an open RSS
 or JSON feed. Some sites simply will not allow automated access; deactivate those
 so they stop being attempted.
-
-### Keeping it accurate
-
-Everything Claude writes can be corrected by hand, and your edits survive the next
-scrape — a rescrape that recognises a URL only refreshes when it was last seen.
-
-| What | Where |
-|---|---|
-| A listing | Opportunities → click a row → **Edit** tab |
-| A source | Sources → the pencil icon |
-| A role analysis | Role analysis → **Edit analysis** |
-
-Setting a score of 7.5 or above marks a listing a strong match, exactly as the
-scorer would. A hand-edited role analysis is labelled *edited by hand* so it is
-never mistaken for Claude's own output.
-
-The trash icon deletes a listing, along with any tracked application and saved
-resume advice. Its URL is remembered so a future scrape does not bring it back.
-
-### Dead links never reach your table
-
-Postings expire constantly, and many sites answer a dead posting with a
-friendly-looking page and a `200 OK` rather than a 404. Every listing is checked
-before it is stored, and pages that turn out to be gone are dropped rather than
-saved. To clean up older rows added before a check existed:
-
-```bash
-.venv/bin/python backend/scraper.py --prune-dead --dry-run   # look first
-.venv/bin/python backend/scraper.py --prune-dead             # then do it
-```
 
 ### Scheduled scraping
 
@@ -250,32 +215,19 @@ crontab -e
 
 The tab pinned to the bottom of the sidebar is a Claude Code session that knows
 this installation — its database, its files, its scripts. Ask it things like
-*"tag everything in Chicago"*, *"which of my strong matches close this month?"* or
-*"find me three more quantum hardware boards"*.
-
-Give it a name and an icon in **Settings → Appearance**.
+*"tag everything in my area"*, *"which of my strong matches close this month?"* or
+*"find me three more relevant job boards"*.
 
 ### Two modes
+
+The Agent has two modes:
 
 | Mode | What it can do |
 |---|---|
 | **Assist** (default) | Query and reorganise your data, run scrapes, research sources, write reports |
 | **Build** | All of the above, plus editing the app's own code and configuration |
 
-Pick the mode and the Claude model from the composer. The paperclip attaches files
-or URLs for it to work from.
-
-### Nothing changes until you say so
-
-Every turn runs **read-only first**. The assistant can look at anything, but it
-cannot change anything — the tools simply are not available to it. If the task
-needs changes, it describes exactly what it intends to do and waits. Approve, and
-it carries out precisely what it described.
-
-This is enforced by the permission layer rather than by trusting the model, and
-Assist mode genuinely cannot touch application code even if you ask it to.
-
-**Build mode is a different bargain, and worth understanding before you use it.**
+### Build Mode: continued
 To edit and build the app it needs to run `python`, `node` and `npm`, and those
 are general-purpose — anything they can do, an approved Build turn can do. The
 harness's own subagent and skill tools are switched off in every mode, and the
@@ -300,47 +252,13 @@ your own git history — deleting that folder discards them and nothing else.
 
 ---
 
-## Settings
-
-| Section | What is in it |
-|---|---|
-| **Appearance** | Theme colour, light/dark/system, palette style, contrast, assistant name and icon |
-| **Resume** | Upload or replace the resume everything is scored against |
-| **Scraper** | Run a scrape now, watch progress, set the schedule |
-| **Claude** | Where the Claude Code CLI lives, and which model to use |
-| **Confirmations** | Turn "are you sure?" prompts back on after dismissing them |
-| **Scrape tuning** | Politeness delay, request timeout, how much of each page to read |
-
-![Settings](docs/settings.png)
-
----
-
-## Privacy
-
-**Everything stays on your machine.** The database, your resume and every listing
-live in `data/` on your own disk. There is no account, no server, and nothing is
-uploaded anywhere.
-
-**Claude only sees what it needs.** Scoring sends the text of a listing and your
-resume to Claude through the Claude Code CLI, using the login you already have.
-There is no API key stored anywhere in this project, and the app does not use one.
-
-**Every button that costs a Claude call is marked** with a sparkle and says "Runs
-a Claude call" on hover. Anything unmarked is instant and free.
-
-**The scraper identifies itself** as `OpportunityTracker` rather than pretending to
-be a browser, and waits two seconds between requests to the same site. Some sites
-will refuse it as a result; that is the intended trade.
-
----
-
 ## Troubleshooting
 
 **"claude CLI not found"** — Claude Code is not on your `PATH`. Find it with
 `which claude` and paste the full path into Settings → Claude.
 
 **Everything shows "API offline"** — the server is not running. Start it with
-`./scripts/start.sh`.
+`opportunity-tracker`.
 
 **A source says Blocked** — that site refuses automated access. Try an alternative
 URL (many have an open RSS or JSON feed), or deactivate it.
@@ -354,7 +272,14 @@ board.
 **The interface did not change after editing the code** — the app serves a
 compiled bundle. Run `npm run build` in `frontend/`, or `./scripts/install.sh`.
 
-**Port 8000 is taken** — `./scripts/start.sh --port 9000`.
+**Port 8000 is taken** — `opportunity-tracker --port 9000`.
+
+**`opportunity-tracker: command not found`** — the installer added
+`~/.local/bin` to your shell config, but the current terminal started before
+that. Open a new one, or run `./scripts/start.sh` from the project directory.
+
+**`opportunity-tracker: the app is no longer at ...`** — you moved or renamed the
+project folder. Re-run `./scripts/install.sh` from its new location.
 
 ---
 
@@ -407,8 +332,3 @@ MIT — see [LICENSE](LICENSE).
 | [`material-color-utilities`](https://github.com/material-foundation/material-color-utilities) | Apache-2.0 | bundled |
 | React, Vite, Tailwind, FastAPI and friends | MIT / BSD / Apache-2.0 | bundled |
 | [Satoshi](https://www.fontshare.com/fonts/satoshi) | ITF Free Font License | **not redistributed** — downloaded at install time |
-
-Satoshi's licence permits self-hosting but not redistribution, so the font files
-are not in this repository; `install.sh` fetches them from Fontshare and each
-installation is its own licensee. If the download fails the app falls back to your
-system font and everything still works.
