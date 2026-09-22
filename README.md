@@ -36,6 +36,7 @@ It runs entirely on your own machine. Your resume never leaves it.
     - [Undoing its work](#undoing-its-work)
   - [Troubleshooting](#troubleshooting)
   - [For developers](#for-developers)
+  - [AI Use Disclosure](#ai-use-disclosure)
   - [License](#license)
 
 ---
@@ -319,6 +320,12 @@ Most backend modules also run standalone, which is the quickest way to test one:
 
 Schema changes are additive — missing columns are added on startup, so upgrading
 never loses data.
+
+---
+
+## AI Use Disclosure
+
+This application was made almost entirely by Claude Code using Anthropic's Opus 5 model. As such, I make no guarantees to the stability of code within this repository. If there is a bug, please report it so I can get around to fixing it swiftly!
 
 ---
 
