@@ -21,6 +21,7 @@ It runs entirely on your own machine. Your resume never leaves it.
   - [What it does](#what-it-does)
   - [Before you start](#before-you-start)
   - [Install](#install)
+    - [Uninstalling](#uninstalling)
   - [Using it](#using-it)
     - [Your shortlist](#your-shortlist)
     - [Checking your fit](#checking-your-fit)
@@ -75,7 +76,7 @@ The following are external dependencies required for Opportunity Tracker to run.
 | | Why | Get it |
 |---|---|---|
 | **[Claude Code](https://claude.com/claude-code)** | Reads and scores your listings | Install it and sign in |
-| **Python 3.11+** | Runs the app | `brew install python@3.13`, or `apt install python3 python3-venv` |
+| **Python 3.11+** | Runs the app | `brew install python@3.13` (MacOS), or `apt install python3 python3-venv` (Linux) or <https://www.python.org/downloads/> |
 | **Node 18+** | Builds the interface | <https://nodejs.org/en/download> |
 | **git** | Optional — lets the built-in agent undo its own changes | Usually already installed |
 
@@ -111,6 +112,28 @@ keeps whatever you already answered.
    against.
 5. **Run a first search.** Optionally scrape the 20 starter sources and ask Claude
    to suggest more. Both run in the background while you look around. -->
+
+### Uninstalling
+
+```bash
+./scripts/uninstall.sh --dry-run    # see exactly what would go
+./scripts/uninstall.sh
+```
+
+By default this removes only what the installer built and can rebuild — the
+virtualenv, `node_modules`, the compiled interface, the downloaded fonts, the
+`opportunity-tracker` command and the PATH line it added.
+
+**Your database, uploads, logs, `.env` and resume are left alone**, so
+re-running `./scripts/install.sh` afterwards brings everything back exactly as
+it was. Deleting the project folder is left to you.
+
+To delete your data as well, use `--purge`. That one asks you to type a phrase
+rather than press `y`, because there is no undo:
+
+```bash
+./scripts/uninstall.sh --purge      # also deletes data/, logs/ and .env
+```
 
 ---
 
