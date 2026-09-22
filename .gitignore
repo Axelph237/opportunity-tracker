@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+data/
+*.db
+*.db-wal
+*.db-shm
+.env
+node_modules/
+dist/
+.DS_Store
+logs/
+resume.pdf
+resume.txt
+prompt.md
+
+# Satoshi is fetched by scripts/install.sh, not redistributed. The ITF Free
+# Font License permits self-hosting but not making the font available to third
+# parties, which publishing it here would do.
+frontend/public/fonts/*.woff2

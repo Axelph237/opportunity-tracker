@@ -1,0 +1,6 @@
+# Test-only dependencies. Not part of the locked runtime list in requirements.txt.
+#
+# Install with:
+#     .venv/bin/pip install -r requirements-dev.txt
+pytest
+pytest-asyncio

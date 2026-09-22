@@ -1,0 +1,332 @@
+@import 'tailwindcss';
+
+/* Satoshi — Indian Type Foundry, ITF Free Font License. One variable file covers
+   weights 300-900; see public/fonts/LICENSE.txt.
+
+   The .woff2 files are NOT in the repository: the licence permits self-hosting
+   but not redistribution, so scripts/install.sh fetches them from Fontshare and
+   each install is its own licensee. If they are absent the stack below falls
+   through to system-ui and the app simply renders in the system face. */
+@font-face {
+  font-family: 'Satoshi';
+  src: url('/fonts/Satoshi-Variable.woff2') format('woff2-variations');
+  font-weight: 300 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Satoshi';
+  src: url('/fonts/Satoshi-VariableItalic.woff2') format('woff2-variations');
+  font-weight: 300 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+/*
+ * Material Design 3 role tokens.
+ *
+ * These values are the compiled-in default (source #00C2FF, vibrant, dark) so the
+ * app is fully styled before any JavaScript runs. src/theme.js overwrites them
+ * on :root at startup from whatever theme is saved, which is why every component
+ * restyles the moment a new source colour is picked.
+ */
+:root {
+    --md-sys-color-background: #0b151a;
+    --md-sys-color-on-background: #dae4ec;
+    --md-sys-color-surface: #0b151a;
+    --md-sys-color-surface-dim: #0b151a;
+    --md-sys-color-surface-bright: #313b41;
+    --md-sys-color-surface-container-lowest: #060f15;
+    --md-sys-color-surface-container-low: #131d22;
+    --md-sys-color-surface-container: #172126;
+    --md-sys-color-surface-container-high: #212b31;
+    --md-sys-color-surface-container-highest: #2c363c;
+    --md-sys-color-on-surface: #dae4ec;
+    --md-sys-color-surface-variant: #3c4950;
+    --md-sys-color-on-surface-variant: #bbc8d2;
+    --md-sys-color-outline: #85939b;
+    --md-sys-color-outline-variant: #3c4950;
+    --md-sys-color-inverse-surface: #dae4ec;
+    --md-sys-color-inverse-on-surface: #283238;
+    --md-sys-color-inverse-primary: #006688;
+    --md-sys-color-shadow: #000000;
+    --md-sys-color-scrim: #000000;
+    --md-sys-color-surface-tint: #75d1ff;
+    --md-sys-color-primary: #75d1ff;
+    --md-sys-color-on-primary: #003548;
+    --md-sys-color-primary-container: #004d67;
+    --md-sys-color-on-primary-container: #c2e8ff;
+    --md-sys-color-secondary: #afc9e7;
+    --md-sys-color-on-secondary: #18324a;
+    --md-sys-color-secondary-container: #304962;
+    --md-sys-color-on-secondary-container: #cfe5ff;
+    --md-sys-color-tertiary: #b2c6f9;
+    --md-sys-color-on-tertiary: #1a2f59;
+    --md-sys-color-tertiary-container: #324671;
+    --md-sys-color-on-tertiary-container: #d9e2ff;
+    --md-sys-color-error: #ffb4ab;
+    --md-sys-color-on-error: #690005;
+    --md-sys-color-error-container: #93000a;
+    --md-sys-color-on-error-container: #ffdad6;
+}
+
+:root[data-mode='light'] {
+    --md-sys-color-background: #f5faff;
+    --md-sys-color-on-background: #131d22;
+    --md-sys-color-surface: #f5faff;
+    --md-sys-color-surface-dim: #d1dbe3;
+    --md-sys-color-surface-bright: #f5faff;
+    --md-sys-color-surface-container-lowest: #ffffff;
+    --md-sys-color-surface-container-low: #ebf5fd;
+    --md-sys-color-surface-container: #e5eff7;
+    --md-sys-color-surface-container-high: #dfeaf1;
+    --md-sys-color-surface-container-highest: #dae4ec;
+    --md-sys-color-on-surface: #131d22;
+    --md-sys-color-surface-variant: #d7e4ee;
+    --md-sys-color-on-surface-variant: #3c4950;
+    --md-sys-color-outline: #6c7981;
+    --md-sys-color-outline-variant: #bbc8d2;
+    --md-sys-color-inverse-surface: #283238;
+    --md-sys-color-inverse-on-surface: #e8f2fa;
+    --md-sys-color-inverse-primary: #75d1ff;
+    --md-sys-color-shadow: #000000;
+    --md-sys-color-scrim: #000000;
+    --md-sys-color-surface-tint: #006688;
+    --md-sys-color-primary: #006688;
+    --md-sys-color-on-primary: #ffffff;
+    --md-sys-color-primary-container: #c2e8ff;
+    --md-sys-color-on-primary-container: #004d67;
+    --md-sys-color-secondary: #48607b;
+    --md-sys-color-on-secondary: #ffffff;
+    --md-sys-color-secondary-container: #cfe5ff;
+    --md-sys-color-on-secondary-container: #304962;
+    --md-sys-color-tertiary: #4a5e8a;
+    --md-sys-color-on-tertiary: #ffffff;
+    --md-sys-color-tertiary-container: #d9e2ff;
+    --md-sys-color-on-tertiary-container: #324671;
+    --md-sys-color-error: #ba1a1a;
+    --md-sys-color-on-error: #ffffff;
+    --md-sys-color-error-container: #ffdad6;
+    --md-sys-color-on-error-container: #93000a;
+}
+
+/*
+ * Tailwind colour utilities mapped onto the MD3 roles. `inline` keeps the var()
+ * reference as-is instead of wrapping it in another variable, so the runtime
+ * values above are what utilities resolve to.
+ */
+@theme inline {
+  --color-surface: var(--md-sys-color-surface);
+  --color-surface-dim: var(--md-sys-color-surface-dim);
+  --color-surface-bright: var(--md-sys-color-surface-bright);
+  --color-surface-container-lowest: var(--md-sys-color-surface-container-lowest);
+  --color-surface-container-low: var(--md-sys-color-surface-container-low);
+  --color-surface-container: var(--md-sys-color-surface-container);
+  --color-surface-container-high: var(--md-sys-color-surface-container-high);
+  --color-surface-container-highest: var(--md-sys-color-surface-container-highest);
+  --color-on-surface: var(--md-sys-color-on-surface);
+  --color-on-surface-variant: var(--md-sys-color-on-surface-variant);
+  --color-outline: var(--md-sys-color-outline);
+  --color-outline-variant: var(--md-sys-color-outline-variant);
+  --color-inverse-surface: var(--md-sys-color-inverse-surface);
+  --color-scrim: var(--md-sys-color-scrim);
+
+  --color-primary: var(--md-sys-color-primary);
+  --color-on-primary: var(--md-sys-color-on-primary);
+  --color-primary-container: var(--md-sys-color-primary-container);
+  --color-on-primary-container: var(--md-sys-color-on-primary-container);
+  --color-secondary: var(--md-sys-color-secondary);
+  --color-secondary-container: var(--md-sys-color-secondary-container);
+  --color-tertiary: var(--md-sys-color-tertiary);
+  --color-on-tertiary: var(--md-sys-color-on-tertiary);
+  --color-tertiary-container: var(--md-sys-color-tertiary-container);
+  --color-on-tertiary-container: var(--md-sys-color-on-tertiary-container);
+  --color-error: var(--md-sys-color-error);
+  --color-on-error: var(--md-sys-color-on-error);
+  --color-error-container: var(--md-sys-color-error-container);
+  --color-on-error-container: var(--md-sys-color-on-error-container);
+
+  --font-sans: 'Satoshi', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Satoshi', system-ui, -apple-system, sans-serif;
+
+  --text-data: 0.75rem;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  :root[data-mode='light'] {
+    color-scheme: light;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--md-sys-color-surface);
+    color: var(--md-sys-color-on-surface);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1 { font-size: 24px; line-height: 1.3; font-weight: 700; letter-spacing: -0.015em; }
+  h2 { font-size: 18px; line-height: 1.4; font-weight: 600; letter-spacing: -0.01em; }
+
+  input,
+  select,
+  textarea,
+  button {
+    font-family: inherit;
+    font-size: inherit;
+  }
+
+  /*
+   * Browsers give <button> a default arrow cursor, so every control had to opt
+   * in individually and most did not. One rule covers buttons, links, the
+   * dropdown triggers and options, toggle pills and the file-upload labels.
+   */
+  button,
+  summary,
+  a[href],
+  label[for],
+  label:has(input[type='checkbox']),
+  label:has(input[type='radio']),
+  [role='button'],
+  [role='option'],
+  [role='switch'],
+  [role='tab'] {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [aria-disabled='true'],
+  label:has(input:disabled) {
+    cursor: not-allowed;
+  }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: var(--md-sys-color-surface); }
+  ::-webkit-scrollbar-thumb { background: var(--md-sys-color-outline-variant); border-radius: 5px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--md-sys-color-outline); }
+}
+
+@layer utilities {
+  /*
+   * Satoshi is proportional, so the places that used a monospace face for
+   * alignment get its tabular figures instead — score, deadline and date columns
+   * still line up digit for digit.
+   */
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+    letter-spacing: 0.005em;
+  }
+}
+
+@layer components {
+  /* Data-dense label: small, wide tracking, uppercase. */
+  .label-data {
+    font-size: var(--text-data);
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-variant-numeric: tabular-nums;
+    color: var(--md-sys-color-on-surface-variant);
+  }
+
+  .field {
+    width: 100%;
+    background-color: var(--md-sys-color-surface-container-lowest);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: 4px;
+    padding: 6px 10px;
+    color: var(--md-sys-color-on-surface);
+    outline: none;
+  }
+  .field:focus,
+  .field:focus-visible {
+    border-color: var(--md-sys-color-primary);
+  }
+  .field::placeholder {
+    color: var(--md-sys-color-on-surface-variant);
+    opacity: 0.7;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: 4px;
+    padding: 6px 12px;
+    color: var(--md-sys-color-on-surface);
+    background-color: var(--md-sys-color-surface-container-high);
+    cursor: pointer;
+    transition: border-color 120ms ease, color 120ms ease, background-color 120ms ease;
+  }
+  .btn:hover:not(:disabled):not([aria-disabled='true']) {
+    border-color: var(--md-sys-color-primary);
+    color: var(--md-sys-color-primary);
+  }
+  /* `aria-disabled` reads as disabled but stays hoverable and focusable, which
+     is how an inert control can still explain itself in a tooltip. Both forms
+     have to look the same. */
+  .btn:disabled,
+  .btn[aria-disabled='true'] {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background-color: var(--md-sys-color-primary-container);
+    border-color: var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-primary-container);
+  }
+  .btn-primary:hover:not(:disabled):not([aria-disabled='true']) {
+    background-color: var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-primary);
+    border-color: var(--md-sys-color-primary);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--md-sys-color-primary);
+    outline-offset: 1px;
+  }
+}
+
+/* Three dots that fade in turn while the agent is working. */
+@keyframes dot-pulse {
+  0%, 80%, 100% { opacity: 0.25; }
+  40% { opacity: 1; }
+}
+
+.dot-pulse > span {
+  animation: dot-pulse 1.4s ease-in-out infinite;
+}
+.dot-pulse > span:nth-child(2) { animation-delay: 0.2s; }
+.dot-pulse > span:nth-child(3) { animation-delay: 0.4s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dot-pulse > span { animation: none; opacity: 0.6; }
+}
+
+/* Motion only on user action. */
+@keyframes slide-in-right {
+  from { transform: translateX(16px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-slide-in { animation: slide-in-right 180ms cubic-bezier(0.2, 0.8, 0.3, 1); }
+.animate-fade-in { animation: fade-in 140ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-slide-in,
+  .animate-fade-in {
+    animation: none;
+  }
+}

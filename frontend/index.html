@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Opportunity Tracker</title>
+    <link
+      rel="preload"
+      href="/fonts/Satoshi-Variable.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <script>
+      // Sets the light/dark attribute before the stylesheet paints, so a saved
+      // light theme does not flash the compiled-in dark defaults first.
+      try {
+        var saved = JSON.parse(localStorage.getItem('opportunity-tracker.theme') || '{}')
+        var mode = saved.mode || 'dark'
+        if (mode === 'system') {
+          mode = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+        }
+        document.documentElement.dataset.mode = mode
+        document.documentElement.style.colorScheme = mode
+      } catch (error) {
+        document.documentElement.dataset.mode = 'dark'
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
