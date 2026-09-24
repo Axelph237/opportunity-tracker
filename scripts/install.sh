@@ -5,7 +5,8 @@
 # the upgrade command after `git pull`.
 #
 #   ./scripts/install.sh
-#   ./scripts/install.sh --no-path    # skip the `opportunity-tracker` command
+#   ./scripts/install.sh --no-path     # skip the `opportunity-tracker` command
+#   ./scripts/install.sh --no-latex    # skip the LaTeX engine for the Resumes tab
 #
 # What it deliberately does NOT do: install Claude Code, create the database, or
 # ask for any configuration. The first-run wizard in the app handles all of that.
@@ -16,10 +17,12 @@ cd "$(dirname "$0")/.."
 ROOT="$PWD"
 
 ADD_TO_PATH=1
+INSTALL_LATEX=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-path) ADD_TO_PATH=0; shift ;;
-    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --no-latex) INSTALL_LATEX=0; shift ;;
+    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -130,6 +133,100 @@ else
     warn "to add it later: re-run this script, or download from fontshare.com/fonts/satoshi"
   fi
   rm -rf "$TMP"
+  trap - EXIT
+fi
+
+# ------------------------------------------------------------- the LaTeX engine
+
+step "LaTeX engine"
+
+# Renders the Resumes tab's LaTeX to PDF. Tectonic is a single static binary
+# that fetches the packages a document needs on first use, so this costs one
+# download instead of the several gigabytes a TeX distribution would.
+#
+# It goes in vendor/ rather than through a package manager: no sudo, nothing
+# installed outside the project, and uninstall.sh can remove it again. An
+# engine already on PATH is always preferred and nothing is downloaded.
+TECTONIC_VERSION="0.17.0"
+VENDOR_BIN="$ROOT/vendor/bin"
+
+ENGINE_ON_PATH=""
+for candidate in tectonic latexmk xelatex pdflatex; do
+  if command -v "$candidate" >/dev/null 2>&1; then ENGINE_ON_PATH="$candidate"; break; fi
+done
+
+latex_ready() { "$1" --version >/dev/null 2>&1; }
+
+if [[ -n "$ENGINE_ON_PATH" ]]; then
+  ok "$ENGINE_ON_PATH already installed ($(command -v "$ENGINE_ON_PATH"))"
+elif [[ "$INSTALL_LATEX" == 0 ]]; then
+  warn "skipped (--no-latex) — the Resumes tab will edit and save but not render"
+  warn "install one later with: brew install tectonic"
+elif [[ -x "$VENDOR_BIN/tectonic" ]] && latex_ready "$VENDOR_BIN/tectonic"; then
+  ok "Tectonic already present ($("$VENDOR_BIN/tectonic" --version 2>/dev/null | head -1))"
+else
+  case "$(uname -s)/$(uname -m)" in
+    Darwin/arm64)              TECTONIC_TARGET="aarch64-apple-darwin" ;;
+    Darwin/x86_64)             TECTONIC_TARGET="x86_64-apple-darwin" ;;
+    Linux/x86_64)              TECTONIC_TARGET="x86_64-unknown-linux-musl" ;;
+    Linux/aarch64|Linux/arm64) TECTONIC_TARGET="aarch64-unknown-linux-musl" ;;
+    *)                         TECTONIC_TARGET="" ;;
+  esac
+
+  if [[ -z "$TECTONIC_TARGET" ]]; then
+    warn "no prebuilt Tectonic for $(uname -sm) — install a LaTeX engine yourself"
+    warn "see https://tectonic-typesetting.github.io/book/latest/installation/"
+  else
+    # The release tag is `tectonic@<version>`; the @ has to be encoded in a URL.
+    TECTONIC_URL="https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%40${TECTONIC_VERSION}/tectonic-${TECTONIC_VERSION}-${TECTONIC_TARGET}.tar.gz"
+    printf '    fetching Tectonic %s for %s (about 21 MB)\n' "$TECTONIC_VERSION" "$TECTONIC_TARGET"
+    TEC_TMP="$(mktemp -d)"
+    trap 'rm -rf "$TEC_TMP"' EXIT
+    if curl -fsSL --max-time 600 "$TECTONIC_URL" -o "$TEC_TMP/tectonic.tar.gz" \
+       && tar xzf "$TEC_TMP/tectonic.tar.gz" -C "$TEC_TMP" 2>/dev/null \
+       && [[ -f "$TEC_TMP/tectonic" ]]; then
+      mkdir -p "$VENDOR_BIN"
+      # Move into place only after the download and extraction both worked, so
+      # an interrupted install cannot leave a half-written binary behind.
+      mv "$TEC_TMP/tectonic" "$VENDOR_BIN/tectonic"
+      chmod +x "$VENDOR_BIN/tectonic"
+      if latex_ready "$VENDOR_BIN/tectonic"; then
+        ok "installed $("$VENDOR_BIN/tectonic" --version 2>/dev/null | head -1) into vendor/bin"
+      else
+        rm -f "$VENDOR_BIN/tectonic"
+        warn "the downloaded Tectonic would not run here — removed it"
+        warn "install one yourself with: brew install tectonic"
+      fi
+    else
+      # Not fatal: everything except rendering works without an engine, and the
+      # app says so in the Resumes tab and in Settings.
+      warn "could not download Tectonic — the Resumes tab will not render PDFs"
+      warn "install one later with 'brew install tectonic', or set the path in"
+      warn "Settings -> Resume, then this step is skipped on the next run"
+    fi
+    rm -rf "$TEC_TMP"
+    trap - EXIT
+  fi
+fi
+
+# A first compile downloads the support files the document needs, which would
+# otherwise happen on the user's first keystroke in the editor. Doing it here
+# turns "installed" into "verified working" and makes that first render quick.
+LATEX_BIN_FOUND="${ENGINE_ON_PATH:-}"
+[[ -z "$LATEX_BIN_FOUND" && -x "$VENDOR_BIN/tectonic" ]] && LATEX_BIN_FOUND="$VENDOR_BIN/tectonic"
+if [[ -n "$LATEX_BIN_FOUND" && "$(basename "$LATEX_BIN_FOUND")" == tectonic* ]]; then
+  WARM_TMP="$(mktemp -d)"
+  trap 'rm -rf "$WARM_TMP"' EXIT
+  printf '\\documentclass{article}\\begin{document}warmup\\end{document}\n' > "$WARM_TMP/warmup.tex"
+  printf '    priming the package cache (first run downloads a few MB)\n'
+  if (cd "$WARM_TMP" && "$LATEX_BIN_FOUND" --outdir "$WARM_TMP" "$WARM_TMP/warmup.tex" >/dev/null 2>&1) \
+     && [[ -f "$WARM_TMP/warmup.pdf" ]]; then
+    ok "rendered a test document successfully"
+  else
+    warn "the engine is installed but a test render failed — it may need network"
+    warn "the Resumes tab will show the error from the engine when you try"
+  fi
+  rm -rf "$WARM_TMP"
   trap - EXIT
 fi
 

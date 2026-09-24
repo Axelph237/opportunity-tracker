@@ -9,10 +9,16 @@ data/
 .env
 node_modules/
 dist/
+# The LaTeX engine scripts/install.sh downloads when the machine has none.
+vendor/
 .DS_Store
 logs/
 resume.pdf
 resume.txt
+resume.tex
+# The render the app publishes for scoring, rebuilt from the LaTeX source.
+resume-active.pdf
+resume-active.txt
 prompt.md
 
 # Satoshi is fetched by scripts/install.sh, not redistributed. The ITF Free

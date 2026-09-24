@@ -79,6 +79,17 @@ The following are external dependencies required for Opportunity Tracker to run.
 | **Python 3.11+** | Runs the app | `brew install python@3.13` (MacOS), or `apt install python3 python3-venv` (Linux) or <https://www.python.org/downloads/> |
 | **Node 18+** | Builds the interface | <https://nodejs.org/en/download> |
 | **git** | Optional — lets the built-in agent undo its own changes | Usually already installed |
+| **A LaTeX engine** | Renders resumes to PDF in the Resumes tab | Installed for you — see below |
+
+You do not need to install this one. If no engine is found, `install.sh`
+downloads [Tectonic](https://tectonic-typesetting.github.io/) into `vendor/`
+— a single binary that fetches the LaTeX packages a document needs on first
+use, so there is no TeX distribution to manage and nothing lands outside the
+project. An engine you already have (`tectonic`, `latexmk`, `xelatex` or
+`pdflatex` on your `PATH`) is always preferred and nothing is downloaded.
+
+Skip it with `./scripts/install.sh --no-latex`; the Resumes tab still edits and
+saves, it just cannot render until you point Settings → Resume at an engine.
 
 
 ---
@@ -92,8 +103,9 @@ cd opportunity-tracker
 opportunity-tracker
 ```
 
-That is the whole thing. The installer sets up Python, builds the interface and
-downloads the fonts; `opportunity-tracker` opens <http://localhost:8000>.
+That is the whole thing. The installer sets up Python, builds the interface,
+downloads the fonts and installs a LaTeX engine if you do not have one;
+`opportunity-tracker` opens <http://localhost:8000>.
 
 Re-running `./scripts/install.sh` is also how you upgrade after a `git pull`.
 
@@ -122,7 +134,8 @@ keeps whatever you already answered.
 
 By default this removes only what the installer built and can rebuild — the
 virtualenv, `node_modules`, the compiled interface, the downloaded fonts, the
-`opportunity-tracker` command and the PATH line it added.
+vendored LaTeX engine, the `opportunity-tracker` command and the PATH line it
+added.
 
 **Your database, uploads, logs, `.env` and resume are left alone**, so
 re-running `./scripts/install.sh` afterwards brings everything back exactly as
