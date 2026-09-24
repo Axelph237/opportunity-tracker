@@ -15,6 +15,11 @@ Hard isolation rules enforced here:
   project. Tests that exercise it request the ``walten_tmp`` fixture, which
   points ``walten.PROJECT_ROOT`` / ``walten.CHECKPOINT_DIR`` /
   ``walten.ARTIFACTS_DIR`` / ``walten.CONTEXT_DIR`` at a temp directory.
+* No test may shell out to a real TeX engine. ``_never_compile_for_real``
+  stubs ``latex.compile_pdf`` everywhere, for every test, automatically.
+* No test may write ``resume.tex`` / ``resume.pdf`` into the real project.
+  ``_forbid_writing_the_real_resume`` enforces this for every test; tests
+  that legitimately save a resume request the ``resume_tmp`` fixture.
 """
 
 from __future__ import annotations
@@ -41,7 +46,10 @@ import advisor
 import classifier
 import claude_cli
 import database
+import latex
 import main
+import resume_loader
+import resumes
 import source_discovery
 import walten
 
@@ -115,6 +123,82 @@ def app_client(db_path) -> Iterator[TestClient]:
     """A TestClient whose app lifespan runs against the temp database."""
     with TestClient(main.app) as client:
         yield client
+
+
+# --------------------------------------------------------------------- resumes
+
+@pytest.fixture(autouse=True)
+def _never_compile_for_real(monkeypatch):
+    """No test may shell out to a TeX engine.
+
+    Compilation is a subprocess against whatever happens to be installed, so
+    a suite that called it would pass or fail depending on the machine. Tests
+    that need a render monkeypatch `latex.compile_pdf` themselves.
+    """
+    def _forbidden(*_args, **_kwargs):
+        raise RuntimeError(
+            "A test attempted to run a real LaTeX engine. Monkeypatch "
+            "latex.compile_pdf (or resumes.latex.compile_pdf) instead."
+        )
+
+    for module in (latex, resumes):
+        monkeypatch.setattr(module, "compile_pdf", _forbidden, raising=False)
+        if hasattr(module, "latex_available"):
+            monkeypatch.setattr(module, "latex_available", lambda *a, **kw: False, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _forbid_writing_the_real_resume(monkeypatch):
+    """No test may write a resume into the real project directory.
+
+    This exists because it already happened: `resumes.py` had its own
+    `PROJECT_ROOT` imported from `database`, the `resume_tmp` fixture only
+    redirected `resume_loader.PROJECT_ROOT`, and a test that published a
+    compiled resume quietly overwrote the developer's own `resume.pdf` with a
+    fake PDF. Redirecting one more module would have fixed that one bug;
+    this fixture makes the whole class of them impossible to reintroduce,
+    whichever module grows a path next.
+    """
+    real_publish = resume_loader.publish_resume
+    real_root = REAL_PROJECT_ROOT.resolve()
+
+    # Derived from BaseException on purpose. `resumes._publish` wraps its work
+    # in `except Exception` so that a resume which will not compile still
+    # becomes the selected one — which would also swallow this, leaving the
+    # test green and the reason buried in a log line.
+    class RealResumeWriteAttempted(BaseException):
+        pass
+
+    def _guarded(target: Path, content: bytes, text: str):
+        if target.resolve().parent == real_root:
+            raise RealResumeWriteAttempted(
+                f"Refusing to write {target.name} into the real project at {real_root}. "
+                "The test needs the resume_tmp fixture."
+            )
+        return real_publish(target, content, text)
+
+    monkeypatch.setattr(resume_loader, "publish_resume", _guarded)
+
+
+@pytest.fixture
+def resume_tmp(tmp_path, monkeypatch) -> Path:
+    """Keep resume.tex, resume.pdf and data/resumes/ out of the real project.
+
+    `save_resume` writes into the project root by design, so without this a
+    test that uploads a resume would overwrite the developer's own. Every
+    module that resolved its own copy of `PROJECT_ROOT` has to be redirected,
+    not just the one that happens to own the write today.
+    """
+    root = tmp_path / "resume-project"
+    (root / "data" / "resumes").mkdir(parents=True)
+    monkeypatch.setattr(resume_loader, "PROJECT_ROOT", root)
+    monkeypatch.setattr(resumes, "PROJECT_ROOT", root)
+    monkeypatch.setattr(resumes, "RESUMES_DIR", root / "data" / "resumes")
+    monkeypatch.setattr(resumes, "ASSETS_DIR", root / "data" / "resume-assets")
+    monkeypatch.setattr(latex, "VENDOR_DIR", root / "vendor" / "bin")
+    # The loader caches across tests in one process; start every test empty.
+    resume_loader._cache.update({"text": None, "filename": None, "updated_at": None})
+    return root
 
 
 # --------------------------------------------------------------------- walten

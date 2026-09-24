@@ -23,9 +23,10 @@ export const SECTIONS = [
   {
     slug: 'resume',
     title: 'Resume',
-    description: 'The document every listing is scored against.',
+    description: 'The document every listing is scored against, and its LaTeX source.',
     Component: Resume,
-    summary: ({ resume }) => resume?.filename || 'none loaded',
+    summary: ({ resume }) =>
+      `${resume?.filename || 'none loaded'}${resume?.tex?.present ? ' · .tex' : ''}`,
   },
   {
     slug: 'scraper',

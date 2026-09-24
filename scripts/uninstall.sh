@@ -9,7 +9,8 @@
 #
 # By default this removes only things the installer created and can recreate:
 # the virtualenv, node_modules, the compiled interface, the downloaded fonts,
-# the `opportunity-tracker` command and the PATH line it added.
+# the vendored LaTeX engine, the `opportunity-tracker` command and the PATH
+# line it added.
 #
 # Your database, uploads, logs, .env and resume are LEFT ALONE. Re-running
 # install.sh afterwards brings the app back with your data intact. --purge
@@ -49,7 +50,9 @@ size_of() { du -sh "$1" 2>/dev/null | cut -f1 || echo "?"; }
 # ------------------------------------------------------------------ what we found
 
 BUILT=()
-for path in .venv frontend/node_modules frontend/dist; do
+# `vendor` holds the Tectonic binary install.sh downloads when the machine has
+# no LaTeX engine. Re-downloadable, so it goes with the rest of the build.
+for path in .venv frontend/node_modules frontend/dist vendor; do
   [[ -e "$ROOT/$path" ]] && BUILT+=("$path")
 done
 shopt -s nullglob
@@ -97,6 +100,11 @@ else
   [[ -e "$ROOT/resume.pdf" ]] && keep "resume.pdf"
   [[ -e "$ROOT/resume.txt" ]] && keep "resume.txt"
   keep "the project directory and its git repo"
+  # Tectonic's package cache lives outside the project and is shared with any
+  # other Tectonic on this machine, so it is never ours to delete.
+  for cache in "$HOME/Library/Caches/Tectonic" "$HOME/.cache/Tectonic"; do
+    [[ -d "$cache" ]] && keep "$cache  (Tectonic's package cache)"
+  done
   printf '\n    %sRe-run ./scripts/install.sh to bring the app back with this intact.%s\n' "$DIM" "$OFF"
   printf '    %sTo delete it as well, re-run with --purge.%s\n' "$DIM" "$OFF"
 fi

@@ -8,7 +8,7 @@ export const OFFLINE_MESSAGE =
 /** Thrown when the API could not be reached at all, as opposed to answering an error. */
 export class ApiOfflineError extends Error {}
 
-async function request(path, options = {}) {
+async function send(path, options = {}) {
   let response
   try {
     response = await fetch(`${BASE}${path}`, {
@@ -33,8 +33,26 @@ async function request(path, options = {}) {
     throw new Error(detail)
   }
 
+  return response
+}
+
+async function request(path, options = {}) {
+  const response = await send(path, options)
   if (response.status === 204) return null
   return response.json()
+}
+
+/**
+ * A page of rows plus how many there are in total.
+ *
+ * The count rides on a header rather than wrapping the body, so the endpoints
+ * keep returning plain lists and every other caller is unaffected.
+ */
+async function requestPage(path) {
+  const response = await send(path)
+  const total = Number(response.headers.get('X-Total-Count'))
+  const items = await response.json()
+  return { items, total: Number.isFinite(total) ? total : items.length }
 }
 
 const get = (path) => request(path)
@@ -57,7 +75,7 @@ export const api = {
   stats: () => get('/stats'),
   health: () => get('/health'),
 
-  opportunities: (filters) => get(`/opportunities${query(filters)}`),
+  opportunities: (filters) => requestPage(`/opportunities${query(filters)}`),
   opportunity: (id) => get(`/opportunities/${id}`),
   updateOpportunity: (id, body) => patch(`/opportunities/${id}`, body),
   deleteOpportunity: (id) => del(`/opportunities/${id}`),
@@ -77,7 +95,7 @@ export const api = {
   updateApplication: (id, body) => patch(`/applications/${id}`, body),
   deleteApplication: (id) => del(`/applications/${id}`),
 
-  sources: (filters) => get(`/sources${query(filters)}`),
+  sources: (filters) => requestPage(`/sources${query(filters)}`),
   createSource: (body) => post('/sources', body),
   updateSource: (id, body) => patch(`/sources/${id}`, body),
   deleteSource: (id) => del(`/sources/${id}`),
@@ -109,10 +127,42 @@ export const api = {
     return request(`/walten/sessions/${id}/context`, { method: 'POST', body: form })
   },
 
+  resumes: () => get('/resumes'),
+  resumeInstance: (id) => get(`/resumes/${id}`),
+  createResumeInstance: (body) => post('/resumes', body || {}),
+  updateResumeInstance: (id, body) => patch(`/resumes/${id}`, body),
+  deleteResumeInstance: (id) => del(`/resumes/${id}`),
+  compileResumeInstance: (id) => post(`/resumes/${id}/compile`),
+  fixResumeInstance: (id, ids) => post(`/resumes/${id}/fix`, ids ? { ids } : {}),
+  makeResumeDefault: (id) => post(`/resumes/${id}/default`),
+  resumeLinks: (id) => get(`/resumes/${id}/linked`),
+
+  resumeAssets: () => get('/resumes/assets'),
+  uploadResumeAsset: (file) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request('/resumes/assets', { method: 'POST', body: form })
+  },
+  deleteResumeAsset: (name) => del(`/resumes/assets/${encodeURIComponent(name)}`),
+  // Not a JSON call: pdf.js fetches this for the preview, and the download
+  // link points a browser straight at it. `v` changes after every render so a
+  // cached copy is never shown in place of the document just compiled.
+  resumePdfUrl: (id, { download = false, version = '' } = {}) =>
+    `${BASE}/resumes/${id}/pdf${query({ download: download || undefined, v: version || undefined })}`,
+
+  // Straight to an <img>, so a URL rather than a fetch. Unknown or untracked
+  // domains 404 and the caller falls back to a generic glyph.
+  faviconUrl: (domain) => `${BASE}/favicons/${encodeURIComponent(domain)}`,
+
   settings: () => get('/settings'),
   checkClaudePath: (path) => post('/settings/claude-path', { path }),
   updateSettings: (body) => patch('/settings', body),
   resume: () => get('/settings/resume'),
+  resumeTex: () => get('/settings/resume-tex'),
+  saveResumeTex: (latex) => request('/settings/resume-tex', { method: 'PUT', body: JSON.stringify({ latex }) }),
+  fixResumeTex: (ids) => post('/settings/resume-tex/fix', ids ? { ids } : {}),
+  latexStatus: () => get('/settings/latex'),
+  checkLatexPath: (path) => post('/settings/latex-path', { path }),
   uploadResume: (file) => {
     const form = new FormData()
     form.append('file', file)

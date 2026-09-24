@@ -24,9 +24,14 @@ import {
   Check,
   Circle,
   Clock,
+  Copy,
   Diamond,
   Dog,
+  DownloadSimple,
+  FileCode,
+  FilePdf,
   FileText,
+  Files,
   Fish,
   Horse,
   Gear,
@@ -44,6 +49,7 @@ import {
   Plus,
   Rabbit,
   Question,
+  SidebarSimple,
   SealCheck,
   Shrimp,
   Sliders,
@@ -87,6 +93,15 @@ export function CheckIcon({ className = 'h-3.5 w-3.5', style }) {
 
 export function EditIcon({ className = 'h-4 w-4' }) {
   return <PencilSimple className={`shrink-0 ${className}`} aria-hidden="true" />
+}
+
+/** Stands in for a site whose own icon could not be fetched. */
+export function SiteIcon({ className = 'h-4 w-4' }) {
+  return <Globe className={`shrink-0 ${className}`} aria-hidden="true" />
+}
+
+export function MinusIcon({ className = 'h-4 w-4' }) {
+  return <Minus className={`shrink-0 ${className}`} aria-hidden="true" />
 }
 
 export function PlusIcon({ className = 'h-4 w-4' }) {
@@ -210,6 +225,27 @@ export function BackIcon({ className = 'h-4 w-4' }) {
   return <ArrowLeft className={`shrink-0 ${className}`} aria-hidden="true" />
 }
 
+export function DownloadIcon({ className = 'h-4 w-4' }) {
+  return <DownloadSimple className={`shrink-0 ${className}`} aria-hidden="true" />
+}
+
+export function DuplicateIcon({ className = 'h-4 w-4' }) {
+  return <Copy className={`shrink-0 ${className}`} aria-hidden="true" />
+}
+
+export function PdfIcon({ className = 'h-4 w-4' }) {
+  return <FilePdf className={`shrink-0 ${className}`} aria-hidden="true" />
+}
+
+export function TexIcon({ className = 'h-4 w-4' }) {
+  return <FileCode className={`shrink-0 ${className}`} aria-hidden="true" />
+}
+
+/** Toggles the recommendations rail in the resume editor. */
+export function SidebarIcon({ className = 'h-4 w-4' }) {
+  return <SidebarSimple className={`shrink-0 ${className}`} aria-hidden="true" />
+}
+
 export function ChevronIcon({ className = 'h-4 w-4' }) {
   return <CaretRight className={`shrink-0 ${className}`} aria-hidden="true" />
 }
@@ -232,6 +268,7 @@ export function SettingsIcon({ name, className = 'h-5 w-5' }) {
 const NAV_ICONS = {
   opportunities: ListBullets,
   applications: Kanban,
+  resumes: Files,
   insights: ChartBar,
   sources: Globe,
   settings: Gear,

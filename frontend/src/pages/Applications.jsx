@@ -279,6 +279,7 @@ export default function Applications({ onMutate }) {
   return (
     <PageLayout
       title="Applications"
+      icon="applications"
       description={`${applications.length} shown · ${
         view === 'board'
           ? 'drag a card between columns to change its status.'

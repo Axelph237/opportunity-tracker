@@ -53,7 +53,11 @@ export function StatusDot({ status }) {
   return (
     <span
       title={status ? titleCase(status) : 'Not tracked'}
-      className={tone}
+      // `inline-flex items-center`, not a plain span: an inline SVG sits on
+      // the text baseline of the line box around it, which leaves the dot a
+      // pixel or two below the middle of its row and out of line with the
+      // other icons.
+      className={`inline-flex items-center ${tone}`}
       aria-label={status ? titleCase(status) : 'Not tracked'}
     >
       <StatusCircle tracked={Boolean(status)} />
