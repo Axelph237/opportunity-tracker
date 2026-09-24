@@ -29,7 +29,13 @@ export default function Tooltip({ label, children, placement = 'top', className 
       {children}
       <span
         role="tooltip"
-        className={`pointer-events-none absolute z-40 w-max max-w-[18rem] rounded-md border border-outline-variant bg-surface-container px-2 py-1 text-data leading-snug text-on-surface opacity-0 shadow-lg shadow-black/30 transition-opacity delay-100 group-hover/tip:opacity-100 group-focus-within/tip:opacity-100 ${
+        // `:has(:focus-visible)` rather than `:focus-within`. A click leaves
+        // focus on the thing you clicked, so focus-within kept the bubble up
+        // after the pointer had gone — until you clicked somewhere else. The
+        // browser only matches `:focus-visible` when it would draw a focus
+        // ring, so keyboard users still get the label and mouse users do not
+        // get a tooltip stuck to a link they just followed.
+        className={`pointer-events-none absolute z-40 w-max max-w-[18rem] rounded-md border border-outline-variant bg-surface-container px-2 py-1 text-data leading-snug text-on-surface opacity-0 shadow-lg shadow-black/30 transition-opacity delay-100 group-hover/tip:opacity-100 group-has-focus-visible/tip:opacity-100 ${
           PLACEMENT[placement] || PLACEMENT.top
         }`}
       >

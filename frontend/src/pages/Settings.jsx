@@ -17,7 +17,12 @@ export default function Settings({ onMutate }) {
   const context = { settings, resume, status, suppressed, theme: readThemeConfig() }
 
   return (
-    <PageLayout title="Settings" description="How the tracker looks and runs." error={error}>
+    <PageLayout
+      title="Settings"
+      icon="settings"
+      description="How the tracker looks and runs."
+      error={error}
+    >
       <div className="max-w-3xl py-6">
         <ul className="divide-y divide-outline-variant rounded border border-outline-variant bg-surface-container">
           {SECTIONS.map((section) => (

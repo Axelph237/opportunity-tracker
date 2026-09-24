@@ -4,6 +4,7 @@ import Popover from '../components/Popover'
 import Tooltip from '../components/Tooltip'
 import Markdown from '../components/Markdown'
 import PageLayout from '../components/PageLayout'
+import { ResizeHandle, usePanelSize } from '../components/Resizable'
 import { useConfirm } from '../components/ConfirmDialog'
 import {
   AI_CALL_TITLE,
@@ -279,6 +280,10 @@ function ContextMenu({ session, onChange, onAttach, close }) {
 }
 
 export default function Walten() {
+  const [sessionsWidth, setSessionsWidth, resetSessions] = usePanelSize('walten.sessions', 224, {
+    min: 160,
+    max: 420,
+  })
   const [overview, setOverview] = useState(null)
   const [session, setSession] = useState(null)
   const [prompt, setPrompt] = useState('')
@@ -561,8 +566,11 @@ export default function Walten() {
         ) : null
       }
     >
-      <div className="flex h-full min-h-0 gap-6 py-6">
-        <aside className="w-56 shrink-0 space-y-1 overflow-auto">
+      <div className="flex h-full min-h-0 py-6">
+        <aside
+          className="shrink-0 space-y-1 overflow-auto pr-4"
+          style={{ width: sessionsWidth }}
+        >
           <div className="flex items-center justify-between gap-2 px-1 pb-2">
             <span className="label-data">Conversations</span>
             <button
@@ -609,7 +617,17 @@ export default function Walten() {
           )}
         </aside>
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+        <ResizeHandle
+          orientation="vertical"
+          label="Resize the conversation list"
+          value={sessionsWidth}
+          onChange={setSessionsWidth}
+          onReset={resetSessions}
+          min={160}
+          max={420}
+        />
+
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 pl-4">
           <div className="min-h-0 flex-1 space-y-6 overflow-auto pr-2 pt-14">
             {messages.length === 0 && !session?.running && !pending ? (
               <p className="max-w-[46rem] text-on-surface-variant">

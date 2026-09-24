@@ -237,8 +237,9 @@ one, they start from a plain single-page template.
 Every divider can be dragged to resize the pane beside it, down to a sensible
 minimum; double-clicking one puts it back, and arrow keys move a focused one.
 The sidebar is draggable too — pull it narrow, or press **Collapse** at its
-foot, and it becomes a rail of centred icons with the names on hover. Every
-size is remembered per browser.
+foot, and it becomes a rail of centred icons with the names on hover. Drag a
+section up or down the sidebar to put it where you want it, or hold alt and
+use the arrow keys. Every size and the order are remembered per browser.
 
 **Brought a template from elsewhere?** Most LaTeX resumes on the internet —
 including the widely copied "Jake Gutierrez" one — were written for pdflatex and

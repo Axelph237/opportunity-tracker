@@ -1,6 +1,6 @@
 import { Link, Navigate, useParams } from 'react-router-dom'
 import PageLayout from '../../components/PageLayout'
-import { BackIcon } from '../../components/icons'
+import { BackIcon, SettingsIcon } from '../../components/icons'
 import { findSection } from './registry'
 import { useSettings } from './useSettings'
 
@@ -17,6 +17,9 @@ export default function SettingsSection({ onMutate }) {
   return (
     <PageLayout
       title={section.title}
+      // Each section already has an icon on the Settings index; carrying it
+      // onto the section's own page is what makes the two read as one place.
+      icon={<SettingsIcon name={slug} className="h-6 w-6 text-on-surface-variant" />}
       description={section.description}
       error={state.error}
       actions={

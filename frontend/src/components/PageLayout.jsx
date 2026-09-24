@@ -1,9 +1,15 @@
+import { NavIcon } from './icons'
+
 /**
  * Full-height page frame.
  *
  * The heading, the action buttons and the filter bar are pinned; only `children`
  * scrolls. Long tables therefore scroll inside themselves instead of pushing the
  * page title off the screen.
+ *
+ * `icon` is usually a nav-icon name, and this decides its size and tone so that
+ * every page heading matches without each one repeating the classes. A node is
+ * accepted too, for the agent, whose icon the user chooses.
  */
 export default function PageLayout({
   title,
@@ -17,13 +23,20 @@ export default function PageLayout({
   contentClassName = '',
   children,
 }) {
+  const glyph =
+    typeof icon === 'string' ? (
+      <NavIcon name={icon} className="h-6 w-6 text-on-surface-variant" />
+    ) : (
+      icon
+    )
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 border-b border-outline-variant bg-surface px-8 pt-8">
         <header className="flex flex-wrap items-start justify-between gap-4 pb-4">
           <div className="min-w-0">
             <h1 className="flex items-center gap-2.5">
-              {icon}
+              {glyph}
               {title}
             </h1>
             {description ? <p className="mt-1 text-on-surface-variant">{description}</p> : null}

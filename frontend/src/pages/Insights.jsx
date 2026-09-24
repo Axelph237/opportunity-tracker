@@ -120,6 +120,7 @@ export default function Insights() {
   return (
     <PageLayout
       title="Role analysis"
+      icon="insights"
       description="What these roles require, what your resume covers, what to learn next."
       contentClassName="pb-8"
     >
