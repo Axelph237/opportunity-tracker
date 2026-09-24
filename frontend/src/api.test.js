@@ -123,3 +123,19 @@ describe('error handling', () => {
     expect(error.message).toContain('Failed to fetch')
   })
 })
+
+describe('api.resumePdfUrl', () => {
+  it('addresses the render plainly', () => {
+    expect(api.resumePdfUrl(7)).toBe('/api/resumes/7/pdf')
+  })
+
+  it('asks for an attachment when downloading', () => {
+    expect(api.resumePdfUrl(7, { download: true })).toContain('download=true')
+  })
+
+  it('carries a cache key the server can see', () => {
+    // In the query, not a fragment: a fragment never reaches the server, so a
+    // stale render would keep being served after a recompile.
+    expect(api.resumePdfUrl(7, { version: 'abc' })).toBe('/api/resumes/7/pdf?v=abc')
+  })
+})

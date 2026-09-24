@@ -12,12 +12,15 @@ from pathlib import Path
 from urllib.parse import urlparse
 from typing import Any, Optional
 
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import advisor
+import favicons as favicons_module
+import latex as latex_module
+import resumes as resumes_module
 import scheduler as scheduler_module
 import walten as walten_module
 import source_discovery
@@ -26,7 +29,15 @@ from claude_cli import ClaudeCallError, ClaudeUnavailable, claude_available, cla
 from database import DB_PATH, PROJECT_ROOT, all_settings, exclude_url, get_db, get_setting, init_db, set_setting
 from models import (
     APPLICATION_STATUSES,
+    LatexStatus,
+    LinkedOpportunity,
     ResumeAdvice,
+    ResumeAsset,
+    ResumeInstance,
+    ResumeInstanceCreate,
+    ResumeInstanceSummary,
+    ResumeInstanceUpdate,
+    ResumeTexUpdate,
     RoleAnalysis,
     RoleAnalysisRequest,
     RoleAnalysisUpdate,
@@ -54,7 +65,14 @@ from models import (
     WaltenUndoPreview,
     WaltenUndoResult,
 )
-from resume_loader import load_resume, resume_status, save_resume
+from resume_loader import (
+    fix_resume_tex,
+    load_resume,
+    resume_status,
+    resume_tex,
+    save_resume_tex,
+    save_resume,
+)
 from scheduler import runner
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -72,6 +90,7 @@ SORT_COLUMNS = {
     "source": "s.name COLLATE NOCASE",
     "application_status": "a.status",
     "advice_generated_at": "adv.generated_at",
+    "resume": "ri.name COLLATE NOCASE",
 }
 SOURCE_SORT_COLUMNS = {
     "name": "name COLLATE NOCASE",
@@ -109,6 +128,7 @@ MUTABLE_SETTINGS = {
     "walten_name",
     "walten_icon",
     "claude_bin",
+    "latex_bin",
     "onboarding_complete",
 }
 
@@ -136,6 +156,9 @@ app.add_middleware(
     ],
     allow_credentials=True,
     allow_methods=["*"],
+    # The pager reads the row count from this header; without exposing it, a
+    # cross-origin dev server hands the browser a response it cannot inspect.
+    expose_headers=["X-Total-Count"],
     allow_headers=["*"],
 )
 
@@ -223,11 +246,12 @@ def _order_clause(column: str, order: str) -> str:
 def _fetch_opportunity(conn: sqlite3.Connection, opportunity_id: int) -> sqlite3.Row:
     row = conn.execute(
         """SELECT o.*, s.name AS source_name, a.id AS application_id, a.status AS application_status,
-                  adv.generated_at AS advice_generated_at
+                  adv.generated_at AS advice_generated_at, ri.name AS resume_instance_name
            FROM opportunities o
            LEFT JOIN sources s ON s.id = o.source_id
            LEFT JOIN applications a ON a.opportunity_id = o.id
            LEFT JOIN resume_advice adv ON adv.opportunity_id = o.id
+           LEFT JOIN resume_instances ri ON ri.id = o.resume_instance_id
            WHERE o.id = ?""",
         (opportunity_id,),
     ).fetchone()
@@ -297,7 +321,8 @@ def stats() -> dict[str, Any]:
                    (SELECT COUNT(*) FROM opportunities WHERE is_active = 1 AND strong_match = 1) AS strong_matches,
                    (SELECT COUNT(*) FROM applications) AS applications,
                    (SELECT COUNT(*) FROM sources WHERE active = 1 AND pending_approval = 0) AS active_sources,
-                   (SELECT COUNT(*) FROM source_proposals WHERE status = 'pending') AS pending_proposals"""
+                   (SELECT COUNT(*) FROM source_proposals WHERE status = 'pending') AS pending_proposals,
+                   (SELECT COUNT(*) FROM resume_instances) AS resumes"""
         ).fetchone()
     # The sidebar polls this, so the agent's configurable name rides along with it.
     return {
@@ -321,6 +346,7 @@ def list_opportunities(
     status: Optional[str] = None,
     remote: Optional[bool] = None,
     has_advice: Optional[bool] = None,
+    resume_instance_id: Optional[int] = None,
     min_score: Optional[float] = Query(None, ge=0, le=10),
     max_score: Optional[float] = Query(None, ge=0, le=10),
     deadline_within_days: Optional[int] = Query(None, ge=0, le=365),
@@ -329,6 +355,7 @@ def list_opportunities(
     include_inactive: bool = False,
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    response: Response = None,  # type: ignore[assignment]
 ) -> list[Opportunity]:
     clauses: list[str] = []
     params: list[Any] = []
@@ -365,6 +392,9 @@ def list_opportunities(
         params.append(int(remote))
     if has_advice is not None:
         clauses.append("adv.id IS NOT NULL" if has_advice else "adv.id IS NULL")
+    if resume_instance_id is not None:
+        clauses.append("o.resume_instance_id = ?")
+        params.append(resume_instance_id)
     if min_score is not None:
         clauses.append("o.relevance_score >= ?")
         params.append(min_score)
@@ -378,19 +408,27 @@ def list_opportunities(
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     sort_column = SORT_COLUMNS.get(sort, SORT_COLUMNS["relevance_score"])
 
-    query = f"""SELECT o.*, s.name AS source_name, a.id AS application_id, a.status AS application_status,
-                       adv.generated_at AS advice_generated_at
-                FROM opportunities o
+    joins = """FROM opportunities o
                 LEFT JOIN sources s ON s.id = o.source_id
                 LEFT JOIN applications a ON a.opportunity_id = o.id
                 LEFT JOIN resume_advice adv ON adv.opportunity_id = o.id
+                LEFT JOIN resume_instances ri ON ri.id = o.resume_instance_id"""
+
+    query = f"""SELECT o.*, s.name AS source_name, a.id AS application_id, a.status AS application_status,
+                       adv.generated_at AS advice_generated_at, ri.name AS resume_instance_name
+                {joins}
                 {where}
                 ORDER BY {_order_clause(sort_column, order)}, o.id DESC
                 LIMIT ? OFFSET ?"""
-    params.extend([limit, offset])
 
     with get_db() as conn:
-        rows = conn.execute(query, params).fetchall()
+        # Counted with the same filters but without the page window, so the
+        # pager knows how many pages there are rather than only whether this
+        # one happened to fill up.
+        total = conn.execute(f"SELECT COUNT(*) AS c {joins} {where}", params).fetchone()["c"]
+        rows = conn.execute(query, [*params, limit, offset]).fetchall()
+    if response is not None:
+        response.headers["X-Total-Count"] = str(total)
     return [Opportunity(**opportunity_dict(row)) for row in rows]
 
 
@@ -441,6 +479,16 @@ def update_opportunity(opportunity_id: int, payload: OpportunityUpdate) -> Oppor
         score = max(0.0, min(10.0, float(data["relevance_score"])))
         values["relevance_score"] = score
         values["strong_match"] = int(score >= STRONG_MATCH_THRESHOLD)
+    if "resume_instance_id" in data:
+        # Sent explicitly as null to unlink, so this cannot go through the
+        # "blank means leave alone" path above.
+        link = data["resume_instance_id"]
+        if link is not None:
+            try:
+                resumes_module.get_instance(int(link))
+            except resumes_module.ResumeNotFound as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+        values["resume_instance_id"] = link
 
     _reject_nulls(values, ("title", "organization", "url", "type"))
 
@@ -774,6 +822,9 @@ def list_sources(
     never_scraped: Optional[bool] = None,
     sort: str = "name",
     order: str = "asc",
+    limit: int = Query(500, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    response: Response = None,  # type: ignore[assignment]
 ) -> list[Source]:
     clauses: list[str] = []
     params: list[Any] = []
@@ -802,9 +853,15 @@ def list_sources(
     sort_column = SOURCE_SORT_COLUMNS.get(sort, SOURCE_SORT_COLUMNS["name"])
 
     with get_db() as conn:
+        total = conn.execute(f"SELECT COUNT(*) AS c FROM sources {where}", params).fetchone()["c"]
         rows = conn.execute(
-            f"SELECT * FROM sources {where} ORDER BY {_order_clause(sort_column, order)}, id ASC", params
+            f"""SELECT * FROM sources {where}
+                ORDER BY {_order_clause(sort_column, order)}, id ASC
+                LIMIT ? OFFSET ?""",
+            [*params, limit, offset],
         ).fetchall()
+    if response is not None:
+        response.headers["X-Total-Count"] = str(total)
     return [Source(**source_dict(row)) for row in rows]
 
 
@@ -1386,6 +1443,259 @@ async def upload_resume(file: UploadFile = File(...)) -> ResumeStatus:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ResumeStatus(**status)
+
+
+# ------------------------------------------------------------------- favicons
+
+@app.get("/api/favicons/{domain}")
+def get_favicon(domain: str) -> Response:
+    """The cached site icon for a domain, fetched on the first request.
+
+    Restricted to domains that already appear in the user's own listings and
+    sources. Without that the route would be an open proxy: any caller could
+    name a host and have the server fetch it.
+    """
+    clean = favicons_module.domain_of(f"https://{domain}")
+    if not clean:
+        raise HTTPException(status_code=400, detail="Not a domain")
+    if clean not in favicons_module.known_domains():
+        raise HTTPException(status_code=404, detail="No tracked page uses that domain")
+
+    row = favicons_module.get_or_fetch(clean)
+    if not row or not row["data"]:
+        raise HTTPException(status_code=404, detail=f"No icon found for {clean}")
+    return Response(
+        content=row["data"],
+        media_type=row["content_type"] or "image/x-icon",
+        # Icons change about never, and the row is the cache of record; a day
+        # of browser caching saves a request per row per page.
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+# ------------------------------------------------------------------ LaTeX engine
+
+@app.get("/api/settings/latex", response_model=LatexStatus)
+def get_latex_status() -> LatexStatus:
+    return LatexStatus(**latex_module.engine_status())
+
+
+@app.post("/api/settings/latex-path")
+def set_latex_path(payload: dict[str, Any]) -> dict[str, Any]:
+    """Point the app at a TeX engine, the same way the Claude binary is set.
+
+    An empty path clears the override and goes back to searching PATH, which is
+    how a user undoes a wrong guess without editing the database.
+    """
+    candidate = str(payload.get("path") or "").strip()
+    if not candidate:
+        set_setting("latex_bin", "")
+        return latex_module.engine_status()
+
+    version = latex_module.latex_version(candidate)
+    if version is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"`{candidate}` could not be run. Give the full path to a tectonic, "
+                   "latexmk, xelatex or pdflatex binary.",
+        )
+    set_setting("latex_bin", candidate)
+    return latex_module.engine_status()
+
+
+# ------------------------------------------------------------- resume .tex source
+
+@app.get("/api/settings/resume-tex")
+def get_resume_tex() -> dict[str, Any]:
+    """The uploaded LaTeX source. `latex` is null when none has been supplied."""
+    return {**resume_status()["tex"], "latex": resume_tex()}
+
+
+@app.put("/api/settings/resume-tex", response_model=ResumeStatus)
+def put_resume_tex(payload: ResumeTexUpdate) -> ResumeStatus:
+    try:
+        return ResumeStatus(**save_resume_tex(payload.latex))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/settings/resume-tex/fix", response_model=ResumeStatus)
+def fix_resume_tex_route(payload: Optional[dict[str, Any]] = None) -> ResumeStatus:
+    """Guard the pdflatex-only lines in the uploaded source, then re-render."""
+    ids = (payload or {}).get("ids")
+    try:
+        return ResumeStatus(**fix_resume_tex(ids))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------- resume variants
+#
+# Each instance is one tailored version of the resume, kept as LaTeX source and
+# compiled on demand. The editor in the Resumes tab is the only writer; listings
+# reference an instance by id.
+
+@app.get("/api/resumes", response_model=list[ResumeInstanceSummary])
+def list_resumes() -> list[ResumeInstanceSummary]:
+    return [ResumeInstanceSummary(**row) for row in resumes_module.list_instances()]
+
+
+@app.post("/api/resumes", response_model=ResumeInstance, status_code=201)
+def create_resume(payload: ResumeInstanceCreate) -> ResumeInstance:
+    try:
+        instance = resumes_module.create_instance(
+            payload.name,
+            description=payload.description,
+            latex_source=payload.latex,
+            copy_from=payload.copy_from,
+        )
+    except resumes_module.ResumeNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return ResumeInstance(**instance)
+
+
+# Registered before `/api/resumes/{instance_id}`: FastAPI matches in
+# declaration order, and "assets" reaching that int-typed route first would be
+# a 422 rather than this handler.
+
+@app.get("/api/resumes/assets", response_model=list[ResumeAsset])
+def list_resume_assets() -> list[ResumeAsset]:
+    """Images and include files every version compiles against."""
+    return [ResumeAsset(**row) for row in resumes_module.list_assets()]
+
+
+@app.post("/api/resumes/assets", response_model=ResumeAsset, status_code=201)
+async def upload_resume_asset(file: UploadFile = File(...)) -> ResumeAsset:
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"File is larger than {MAX_UPLOAD_BYTES // 1_000_000} MB")
+    try:
+        return ResumeAsset(**resumes_module.save_asset(file.filename or "", content))
+    except resumes_module.AssetError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/api/resumes/assets/{name}", status_code=204)
+def delete_resume_asset(name: str) -> None:
+    try:
+        resumes_module.delete_asset(name)
+    except resumes_module.AssetError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except resumes_module.ResumeNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/resumes/{instance_id}", response_model=ResumeInstance)
+def get_resume_instance(instance_id: int) -> ResumeInstance:
+    try:
+        return ResumeInstance(**resumes_module.get_instance(instance_id))
+    except resumes_module.ResumeNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.patch("/api/resumes/{instance_id}", response_model=ResumeInstance)
+def update_resume_instance(instance_id: int, payload: ResumeInstanceUpdate) -> ResumeInstance:
+    try:
+        instance = resumes_module.update_instance(
+            instance_id, payload.model_dump(exclude_unset=True)
+        )
+    except resumes_module.ResumeNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ResumeInstance(**instance)
+
+
+@app.delete("/api/resumes/{instance_id}", status_code=204)
+def delete_resume_instance(instance_id: int) -> None:
+    """Delete a variant. Listings that pointed at it are unlinked, not deleted."""
+    try:
+        resumes_module.delete_instance(instance_id)
+    except resumes_module.ResumeNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/resumes/{instance_id}/fix", response_model=ResumeInstance)
+def fix_resume_instance(instance_id: int, payload: Optional[dict[str, Any]] = None) -> ResumeInstance:
+    """Rewrite the version's source to work with this machine's engine.
+
+    An ordinary save, so the editor shows the document it now is — the compile
+    step never sees anything the user cannot.
+    """
+    ids = (payload or {}).get("ids")
+    try:
+        return ResumeInstance(**resumes_module.fix_instance(instance_id, ids))
+    except resumes_module.ResumeNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/resumes/{instance_id}/compile", response_model=ResumeInstance)
+def compile_resume_instance(instance_id: int) -> ResumeInstance:
+    """Render the variant to PDF.
+
+    A document that does not compile is not an error here: the response carries
+    `compile_ok: false` with the log and line numbers so the editor can point at
+    the problem. Only a missing engine is a 503.
+    """
+    try:
+        instance = resumes_module.compile_instance(instance_id)
+    except resumes_module.ResumeNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except latex_module.LatexUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return ResumeInstance(**instance)
+
+
+@app.post("/api/resumes/{instance_id}/default", response_model=ResumeInstance)
+def make_resume_default(instance_id: int) -> ResumeInstance:
+    """Score every listing against this variant from now on."""
+    try:
+        return ResumeInstance(**resumes_module.set_default(instance_id))
+    except resumes_module.ResumeNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/resumes/{instance_id}/pdf")
+def get_resume_pdf(instance_id: int, download: bool = False) -> FileResponse:
+    """The last successful render. `download=true` sends it as an attachment."""
+    try:
+        instance = resumes_module.get_instance(instance_id)
+    except resumes_module.ResumeNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    path = resumes_module.pdf_path(instance)
+    if not path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="This resume has not been compiled yet. Compile it to get a PDF.",
+        )
+
+    # A slug rather than the internal filename, so a downloaded file is named
+    # after the variant the user recognises.
+    slug = "".join(c if c.isalnum() or c in "-_" else "-" for c in instance["name"]).strip("-")
+    filename = f"{slug or 'resume'}.pdf"
+    if download:
+        return FileResponse(path, media_type="application/pdf", filename=filename)
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            # The preview refetches after every compile; a cached copy would
+            # show the user the document they just changed.
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.get("/api/resumes/{instance_id}/linked", response_model=list[LinkedOpportunity])
+def get_resume_links(instance_id: int) -> list[LinkedOpportunity]:
+    """Listings this variant is attached to."""
+    try:
+        rows = resumes_module.linked_opportunities(instance_id)
+    except resumes_module.ResumeNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return [LinkedOpportunity(**row) for row in rows]
 
 
 # ----------------------------------------------------------------- the built UI

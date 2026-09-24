@@ -25,6 +25,7 @@ It runs entirely on your own machine. Your resume never leaves it.
   - [Using it](#using-it)
     - [Your shortlist](#your-shortlist)
     - [Checking your fit](#checking-your-fit)
+    - [Writing your resume](#writing-your-resume)
     - [The bigger picture](#the-bigger-picture)
     - [Tracking applications](#tracking-applications)
     - [Managing sources](#managing-sources)
@@ -60,6 +61,11 @@ experience you do not have.
 **Shows you the bigger picture.** Role analysis reads your whole shortlist at once
 and tells you which requirements keep recurring, which ones you already meet, and
 what to learn next.
+
+**Lets you write the resume, not just measure it.** A LaTeX editor with a live
+PDF preview, and as many tailored versions as you have applications. Each one
+can be attached to the listings it was written for, with that listing's advice
+open beside the source.
 
 **Tracks what you have applied to.** A kanban board from bookmarked through
 applied, interview and offer, with deadlines and notes.
@@ -163,6 +169,13 @@ level, source, score range, remote, closing soon, whether you are already tracki
 it, or just type in the search box. Filtering applies across the whole table, not
 just the rows on screen.
 
+Listings arrive 25 to a page — the pager at the foot of the table says how many
+there are altogether and can show 50 or 100 at a time instead. Each row carries
+the site's own icon, fetched once per domain and cached locally; sites that
+block us or have no icon fall back to a plain globe. The icons come from the
+sites themselves rather than a favicon service, so nothing about what you are
+looking at is sent anywhere.
+
 ### Checking your fit
 
 Open a listing and switch to the **Resume fit** tab, then press **Suggest resume
@@ -178,6 +191,69 @@ adjustments**. You get:
 The diamond in the table's **Fit** column shows which listings already have advice
 saved (◆) and which do not (◇). Advice is cached, so reopening it is instant.
 Upload a new resume and older advice is flagged stale with a button to refresh it.
+
+### Writing your resume
+
+**Resumes** is a LaTeX editor with the rendered PDF beside it. Type, and it saves
+and re-renders on its own once you stop; **PDF** downloads whatever is currently
+rendered. Compile errors appear under the editor as a list, and clicking one
+jumps to the line it came from.
+
+The preview is drawn by the app rather than handed to the browser's PDF plugin,
+so it behaves like part of the page: drag anywhere on it to pan, zoom with the
+control in its corner or ctrl/cmd and the scroll wheel, and it keeps your place
+in the document instead of jumping back to the top every time it re-renders.
+
+Each entry in the left rail is a **version** — one resume tailored for one kind
+of application. **Duplicate** copies the open one so you can start from something
+that already works rather than from scratch. Versions are independent: editing
+"For IBM" never touches "Base".
+
+One version can be marked **scored** — the one every listing is compared against.
+Press **Use for scoring** to switch to it; its render becomes what the scraper
+and the advice read from then on. If you uploaded a resume, that stays the scored
+document until you switch, and the file you uploaded is never overwritten: renders
+are published alongside it as `resume-active.pdf`.
+
+To tailor a version for a particular role, open that listing in Opportunities and
+pick the version under **Tailored resume**. Back in the Resumes tab, the
+collapsible **Advice** rail on the right lists every listing using the open
+version, and expands each into the recommendations generated for it — the
+suggested rewrites, the requirements you meet and miss, and the keywords worth
+mirroring. **Insert at cursor** drops a suggested line straight into the source,
+which is the point of having it there rather than a tab away.
+
+**Assets** below the version rail holds the files your resume pulls in — a
+university seal, a headshot, a `.sty` you wrote. Drag them onto the panel or
+press **Add**; clicking one writes the right command (`\includegraphics`,
+`\input`, `\usepackage`) at your cursor. They are shared by every version and
+copied in beside the source on each render, which is what lets
+`\includegraphics{seal.png}` resolve at all. Adding or removing one re-renders
+straight away.
+
+Upload a `.tex` under **Settings → Resume** and new versions start from it. Without
+one, they start from a plain single-page template.
+
+Every divider can be dragged to resize the pane beside it, down to a sensible
+minimum; double-clicking one puts it back, and arrow keys move a focused one.
+The sidebar is draggable too — pull it narrow, or press **Collapse** at its
+foot, and it becomes a rail of centred icons with the names on hover. Every
+size is remembered per browser.
+
+**Brought a template from elsewhere?** Most LaTeX resumes on the internet —
+including the widely copied "Jake Gutierrez" one — were written for pdflatex and
+reach for commands XeTeX does not have, so they fail here as written. The app
+recognises those and offers to repair them: a banner appears above the editor,
+and on the upload screen the moment you add a `.tex`, with **What changes**
+explaining each one. The repair edits your source where you can see it rather
+than patching it invisibly on the way to the engine, and it wraps each line in
+`\ifdefined ... \fi` rather than deleting it, so the same file still works if
+you compile it with pdflatex somewhere else.
+
+If a version still will not build, check the error list under the editor. LaTeX
+counts lines per file, so an error inside a package reports that package's line
+number rather than yours — the app says which file it came from instead of
+sending your cursor somewhere misleading.
 
 ### The bigger picture
 

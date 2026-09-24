@@ -86,6 +86,8 @@ class Opportunity(BaseModel):
     application_id: Optional[int] = None
     application_status: Optional[str] = None
     advice_generated_at: Optional[str] = None
+    resume_instance_id: Optional[int] = None
+    resume_instance_name: Optional[str] = None
 
 
 class ResumeRequirement(BaseModel):
@@ -194,6 +196,8 @@ class OpportunityUpdate(BaseModel):
     is_active: Optional[bool] = None
     notes: Optional[str] = None
     relevance_score: Optional[float] = None
+    # Explicit null unlinks the listing from whichever resume it pointed at.
+    resume_instance_id: Optional[int] = None
 
     @field_validator("title", "organization", "url")
     @classmethod
@@ -399,7 +403,28 @@ class SettingsUpdate(BaseModel):
     walten_name: Optional[str] = None
     walten_icon: Optional[str] = None
     claude_bin: Optional[str] = None
+    latex_bin: Optional[str] = None
     onboarding_complete: Optional[bool] = None
+
+
+class LatexIssue(BaseModel):
+    """A known reason this source will not compile with the engine we ship."""
+
+    id: str
+    title: str
+    detail: str
+    line: int
+    snippet: str
+
+
+class ResumeTexStatus(BaseModel):
+    """The uploaded LaTeX source, which is separate from the scored document."""
+
+    present: bool = False
+    filename: Optional[str] = None
+    characters: int = 0
+    updated_at: Optional[str] = None
+    issues: list[LatexIssue] = Field(default_factory=list)
 
 
 class ResumeStatus(BaseModel):
@@ -407,6 +432,101 @@ class ResumeStatus(BaseModel):
     filename: Optional[str] = None
     characters: int = 0
     updated_at: Optional[str] = None
+    tex: ResumeTexStatus = Field(default_factory=ResumeTexStatus)
+
+
+class LatexStatus(BaseModel):
+    """Which TeX engine, if any, this machine can compile with."""
+
+    available: bool = False
+    path: Optional[str] = None
+    engine: Optional[str] = None
+    version: Optional[str] = None
+    candidates: list[str] = Field(default_factory=list)
+
+
+# ------------------------------------------------------------- resume instances
+
+class CompileError(BaseModel):
+    line: Optional[int] = None
+    message: str
+
+
+class ResumeInstanceSummary(BaseModel):
+    """A row in the resume list: everything but the document itself."""
+
+    id: int
+    name: str
+    description: Optional[str] = None
+    pdf_filename: Optional[str] = None
+    has_pdf: bool = False
+    compiled_at: Optional[str] = None
+    compile_ok: bool = False
+    compile_errors: list[CompileError] = Field(default_factory=list)
+    is_default: bool = False
+    linked_count: int = 0
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class ResumeInstance(ResumeInstanceSummary):
+    latex: str = ""
+    compile_log: Optional[str] = None
+    # Derived from `latex`, not stored: the source is the only truth, and a
+    # cached copy of its problems would go stale on the next keystroke.
+    issues: list[LatexIssue] = Field(default_factory=list)
+
+
+class ResumeInstanceCreate(BaseModel):
+    name: str = "New resume"
+    description: Optional[str] = None
+    latex: Optional[str] = None
+    # Start from an existing variant rather than the template or resume.tex.
+    copy_from: Optional[int] = None
+
+    @field_validator("name")
+    @classmethod
+    def _named(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("cannot be empty")
+        return value.strip()
+
+
+class ResumeInstanceUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    latex: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def _named(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.strip():
+            raise ValueError("cannot be empty")
+        return value.strip() if value is not None else None
+
+
+class ResumeTexUpdate(BaseModel):
+    latex: str
+
+
+class ResumeAsset(BaseModel):
+    """An image or include file staged beside the source at compile time."""
+
+    name: str
+    size: int
+    updated_at: Optional[str] = None
+
+
+class LinkedOpportunity(BaseModel):
+    """A listing this resume is attached to, as shown in the editor sidebar."""
+
+    id: int
+    title: str
+    organization: str
+    url: Optional[str] = None
+    deadline: Optional[str] = None
+    relevance_score: Optional[float] = None
+    advice_generated_at: Optional[str] = None
 
 
 OpportunityDetail.model_rebuild()

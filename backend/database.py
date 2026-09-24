@@ -38,6 +38,27 @@ CREATE TABLE IF NOT EXISTS sources (
     notes TEXT
 );
 
+-- One saved variant of the resume: LaTeX source plus its last compiled PDF.
+-- The source is the record; the PDF under data/resumes/ is a derived artifact
+-- that can be thrown away and rebuilt, which is why only its name is stored.
+--
+-- Declared before `opportunities` because that table carries a foreign key into
+-- it, and SQLite needs the parent to exist first.
+CREATE TABLE IF NOT EXISTS resume_instances (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    latex TEXT NOT NULL DEFAULT '',
+    pdf_filename TEXT,             -- relative to data/resumes/
+    compiled_at TEXT,
+    compile_ok INTEGER NOT NULL DEFAULT 0,
+    compile_log TEXT,
+    compile_errors TEXT,           -- JSON array of {line, message}
+    is_default INTEGER NOT NULL DEFAULT 0,  -- the variant used for scoring
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS opportunities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
@@ -58,7 +79,10 @@ CREATE TABLE IF NOT EXISTS opportunities (
     tags TEXT,
     notes TEXT,
     is_active INTEGER DEFAULT 1,
-    last_seen TEXT
+    last_seen TEXT,
+    -- The resume variant tailored for this listing, if the user linked one.
+    -- SET NULL rather than CASCADE: deleting a resume must not delete listings.
+    resume_instance_id INTEGER REFERENCES resume_instances(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS applications (
@@ -161,6 +185,18 @@ CREATE TABLE IF NOT EXISTS role_analyses (
     strengths TEXT                 -- JSON array of resume strengths worth leading with
 );
 
+-- Site icons for the listings and sources tables. Keyed by domain, not by
+-- row: many listings share one site, and a per-row copy would be the same
+-- bytes over and over. A row with ok = 0 is a remembered miss, so a site
+-- without an icon is not re-requested on every page load.
+CREATE TABLE IF NOT EXISTS favicons (
+    domain TEXT PRIMARY KEY,
+    data BLOB,
+    content_type TEXT,
+    ok INTEGER NOT NULL DEFAULT 0,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -209,6 +245,8 @@ DEFAULT_SETTINGS = {
     "walten_name": os.getenv("WALTEN_NAME", "Walten"),
     "walten_icon": os.getenv("WALTEN_ICON", "Dog"),
     "claude_bin": "",
+    # Empty means "look for tectonic, latexmk, xelatex or pdflatex on PATH".
+    "latex_bin": "",
     "onboarding_complete": "0",
 }
 
@@ -252,6 +290,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "strong_match": "INTEGER DEFAULT 0",
             "is_active": "INTEGER DEFAULT 1",
             "last_seen": "TEXT",
+            # A plain integer on upgraded databases: only tables created fresh
+            # carry the REFERENCES clause declared above. Deleting a resume
+            # therefore clears the links in code rather than relying on
+            # ON DELETE SET NULL, so both shapes behave the same.
+            "resume_instance_id": "INTEGER",
         },
         "sources": {
             "search_query": "TEXT",
@@ -287,6 +330,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
         for column, ddl in columns.items():
             if column not in existing:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+    # Indexes over migrated columns have to wait until the column exists.
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_opportunities_resume ON opportunities(resume_instance_id)"
+    )
 
 
 def _dedupe_applications(conn: sqlite3.Connection) -> None:

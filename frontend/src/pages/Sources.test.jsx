@@ -46,7 +46,8 @@ function baseSource(overrides) {
 }
 
 function renderSources(sources) {
-  api.sources.mockResolvedValue(sources)
+  // The listing endpoints return a page plus the total the pager counts with.
+  api.sources.mockResolvedValue({ items: sources, total: sources.length })
   api.proposals.mockResolvedValue([])
   api.scrapeStatus.mockResolvedValue(STATUS)
   return render(

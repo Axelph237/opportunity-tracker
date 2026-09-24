@@ -7,6 +7,11 @@
  */
 import { SortCaret } from './icons'
 
+// Written out rather than composed as `text-${align}`. Tailwind generates its
+// classes by scanning the source for literal names, so an interpolated one is
+// never emitted and the alignment silently does nothing.
+const ALIGN = { left: 'text-left', center: 'text-center', right: 'text-right' }
+
 export default function SortableTh({
   column,
   label,
@@ -22,12 +27,16 @@ export default function SortableTh({
   const pinned = sticky ? 'sticky top-0 z-10 bg-surface shadow-[inset_0_-1px_0_var(--color-outline-variant)]' : ''
 
   if (!column) {
-    return <th className={`label-data px-3 py-2 font-normal ${pinned} ${className}`}>{label}</th>
+    return (
+      <th className={`label-data px-3 py-2 font-normal ${ALIGN[align]} ${pinned} ${className}`}>
+        {label}
+      </th>
+    )
   }
 
   return (
     <th
-      className={`px-3 py-2 font-normal text-${align} ${pinned} ${className}`}
+      className={`px-3 py-2 font-normal ${ALIGN[align] || ALIGN.left} ${pinned} ${className}`}
       aria-sort={active ? (order === 'asc' ? 'ascending' : 'descending') : 'none'}
     >
       <button

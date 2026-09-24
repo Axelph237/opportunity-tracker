@@ -22,6 +22,11 @@ READABLE_TABLES = WRITABLE_TABLES | {
     "source_proposals",
     "scrape_logs",
     "resume_advice",
+    # Readable so the agent can say which listing uses which resume, and read
+    # the source it is advising on. Deliberately not writable: rewriting the
+    # user's resume is an edit to their own document, and it belongs in the
+    # editor where they can see the diff and the render, not in a CLI update.
+    "resume_instances",
     "role_analyses",
     "settings",
     "walten_sessions",

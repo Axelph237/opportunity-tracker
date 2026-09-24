@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
+import Favicon from '../components/Favicon'
 import PageLayout from '../components/PageLayout'
+import Pager, { DEFAULT_PAGE_SIZE } from '../components/Pager'
 import SlidePanel from '../components/SlidePanel'
 import SourceForm from '../components/SourceForm'
 import SourceDiscoveryPanel from '../components/SourceDiscoveryPanel'
@@ -65,7 +67,14 @@ function LastScraped({ source }) {
   )
 }
 
+// Shared by every cell so the row reads as one card rather than a table row.
+// The transparent border keeps these rows the same height and shape as the
+// listings table, where the border turns blue on a strong match.
+const CELL =
+  'bg-surface-container py-2.5 border-y border-transparent transition-colors group-hover:bg-surface-container-high'
+
 const COLUMNS = [
+  { column: null, label: '' },
   { column: 'name', label: 'Name' },
   { column: 'type', label: 'Type' },
   { column: 'active', label: 'Active' },
@@ -148,24 +157,34 @@ export default function Sources({ onMutate }) {
   // so a plain number left "Scrape" on source 3 and "Approve" on proposal 3
   // disabling each other.
   const [busyId, setBusyId] = useState(null)
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+  const [total, setTotal] = useState(0)
   const [error, setError] = useState(null)
   const confirm = useConfirm()
 
   const load = useCallback(async () => {
     try {
       const [nextSources, nextProposals, nextStatus] = await Promise.all([
-        api.sources(filters),
+        api.sources({ ...filters, limit: pageSize, offset: page * pageSize }),
         api.proposals(),
         api.scrapeStatus(),
       ])
-      setSources(nextSources)
+      setSources(nextSources.items)
+      setTotal(nextSources.total)
       setProposals(nextProposals)
       setStatus(nextStatus)
       setError(null)
     } catch (err) {
       setError(err.message)
     }
-  }, [filters])
+  }, [filters, page, pageSize])
+
+  // A narrowed filter can leave you on a page that no longer exists.
+  const changeFilters = (next) => {
+    setPage(0)
+    setFilters(next)
+  }
 
   useEffect(() => {
     const timer = setTimeout(load, 200)
@@ -311,6 +330,7 @@ export default function Sources({ onMutate }) {
   return (
     <PageLayout
       title="Sources"
+      icon="sources"
       description={`${sources.length} shown · every active source is scraped.`}
       error={error}
       actions={
@@ -364,10 +384,10 @@ export default function Sources({ onMutate }) {
           </div>
         ) : null
       }
-      toolbar={<SourceFilterBar filters={filters} onChange={setFilters} resultCount={sources.length} />}
+      toolbar={<SourceFilterBar filters={filters} onChange={changeFilters} resultCount={total} />}
     >
       <div>
-        <table className="w-full border-collapse">
+        <table className="w-full border-separate border-spacing-y-1.5">
           <thead>
             <tr className="text-left">
               {COLUMNS.map((header, index) => (
@@ -377,7 +397,7 @@ export default function Sources({ onMutate }) {
                   sticky
                   sort={filters.sort}
                   order={filters.order}
-                  onSort={(sort, order) => setFilters({ ...filters, sort, order })}
+                  onSort={(sort, order) => changeFilters({ ...filters, sort, order })}
                 />
               ))}
             </tr>
@@ -385,14 +405,26 @@ export default function Sources({ onMutate }) {
           <tbody>
             {sources.length === 0 && !error ? (
               <tr>
-                <td colSpan={COLUMNS.length} className="px-3 py-10 text-center text-on-surface-variant">
+                <td
+                  colSpan={COLUMNS.length}
+                  className="rounded-lg bg-surface-container px-3 py-10 text-center text-on-surface-variant"
+                >
                   No sources match these filters.
                 </td>
               </tr>
             ) : null}
             {sources.map((source) => (
-              <tr key={source.id} className={`border-b border-outline-variant/60 ${source.active ? '' : 'opacity-50'}`}>
-                <td className="max-w-sm px-3 py-2">
+              <tr key={source.id} className={`group ${source.active ? '' : 'opacity-50'}`}>
+                {/* Asymmetric on purpose. The gap the eye reads on the right
+                    is this cell's padding plus the next cell's, so matching
+                    them numerically would leave the icon crowded against the
+                    card's border. 16px left, 4px + the neighbour's 12px right. */}
+                <td className={`${CELL} w-10 rounded-l-lg border-l pl-4 pr-1`}>
+                  <span className="flex items-center justify-center">
+                    <Favicon url={source.url} />
+                  </span>
+                </td>
+                <td className={`${CELL} max-w-sm px-3`}>
                   <div className="line-clamp-1 text-on-surface">{source.name}</div>
                   <a
                     href={source.url}
@@ -403,10 +435,10 @@ export default function Sources({ onMutate }) {
                     {source.url}
                   </a>
                 </td>
-                <td className="px-3 py-2">
+                <td className={`${CELL} px-3`}>
                   <StatusBadge value={source.type} kind="source" />
                 </td>
-                <td className="px-3 py-2">
+                <td className={`${CELL} px-3`}>
                   <button
                     type="button"
                     role="switch"
@@ -424,21 +456,23 @@ export default function Sources({ onMutate }) {
                     />
                   </button>
                 </td>
-                <td className="px-3 py-2">
+                <td className={`${CELL} px-3`}>
                   <LastScraped source={source} />
                 </td>
-                <td className="px-3 py-2 font-mono text-data text-on-surface">
+                <td className={`${CELL} px-3 font-mono text-data text-on-surface`}>
                   {source.last_result_count ?? '—'}
                 </td>
-                <td className="px-3 py-2 font-mono text-data text-on-surface-variant">{formatDate(source.date_added)}</td>
-                <td className="px-3 py-2">
+                <td className={`${CELL} px-3 font-mono text-data text-on-surface-variant`}>
+                  {formatDate(source.date_added)}
+                </td>
+                <td className={`${CELL} px-3`}>
                   <span
                     className={`font-mono text-data ${source.added_by === 'claude' ? 'text-primary' : 'text-on-surface-variant'}`}
                   >
                     {source.added_by}
                   </span>
                 </td>
-                <td className="px-3 py-2">
+                <td className={`${CELL} rounded-r-lg border-r px-3`}>
                   <div className="flex justify-end gap-2">
                     {source.last_status === 'blocked' ? (
                       /* No point spending a request the host will refuse. Not
@@ -494,7 +528,19 @@ export default function Sources({ onMutate }) {
           </tbody>
         </table>
       </div>
-      <div className="h-8" />
+
+      <Pager
+        page={page}
+        pageSize={pageSize}
+        total={total}
+        label="sources"
+        onPage={setPage}
+        onPageSize={(size) => {
+          setPage(Math.floor((page * pageSize) / size))
+          setPageSize(size)
+        }}
+      />
+      <div className="h-4" />
 
       <SlidePanel
         open={Boolean(editing)}

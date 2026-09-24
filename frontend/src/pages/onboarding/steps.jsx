@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import LatexIssues from '../../components/LatexIssues'
 import ThemeSettings from '../../components/ThemeSettings'
 import { AGENT_ICON_NAMES, AgentIcon, CheckIcon, OfflineIcon, WarnIcon } from '../../components/icons'
 import { api } from '../../api'
@@ -165,19 +166,22 @@ export function AgentStep({ settings, act }) {
   )
 }
 
-/** Step 4 — the document every listing is scored against. */
+/** Step 4 — the document every listing is scored against, and its LaTeX source. */
 export function ResumeStep({ settings, resume, act }) {
   const fileInput = useRef(null)
+  const texInput = useRef(null)
   const [busy, setBusy] = useState(false)
 
-  const upload = async (event) => {
+  const upload = async (event, input) => {
     const file = event.target.files?.[0]
     if (!file) return
     setBusy(true)
     await act(() => api.uploadResume(file), null)
     setBusy(false)
-    if (fileInput.current) fileInput.current.value = ''
+    if (input.current) input.current.value = ''
   }
+
+  const tex = resume?.tex
 
   return (
     <div className="space-y-5">
@@ -212,14 +216,66 @@ export function ResumeStep({ settings, resume, act }) {
       <input
         ref={fileInput}
         type="file"
-        accept=".pdf,.txt,.md"
-        onChange={upload}
+        accept=".pdf,.txt,.md,.tex"
+        onChange={(event) => upload(event, fileInput)}
         className="hidden"
         id="onboarding-resume"
       />
       <label htmlFor="onboarding-resume" className="btn btn-primary cursor-pointer">
         {busy ? 'Reading…' : resume?.loaded ? 'Replace resume' : 'Upload resume'}
       </label>
+
+      {/* Optional, and deliberately second: the app works fully without it.
+          Supplying it is what makes the Resumes tab open on the user's own
+          document rather than a template. */}
+      <div className="space-y-3 border-t border-outline-variant pt-5">
+        <div>
+          <p className="text-on-surface">Have the LaTeX source too?</p>
+          <p className="mt-1 text-on-surface-variant">
+            Upload the <span className="font-mono">.tex</span> and the Resumes tab can edit your
+            real resume, render it and tailor a version per listing. Optional — you can add it
+            later in Settings.
+          </p>
+        </div>
+
+        {tex?.present ? (
+          <div className="flex items-start gap-3 rounded-lg border border-primary/50 bg-primary/5 px-4 py-3">
+            <span className="mt-0.5 text-primary">
+              <CheckIcon className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="font-mono text-on-surface">{tex.filename}</p>
+              <p className="mt-1 font-mono text-data text-on-surface-variant">
+                {tex.characters?.toLocaleString()} characters · {formatDateTime(tex.updated_at)}
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        <input
+          ref={texInput}
+          type="file"
+          accept=".tex"
+          onChange={(event) => upload(event, texInput)}
+          className="hidden"
+          id="onboarding-resume-tex"
+        />
+        <label htmlFor="onboarding-resume-tex" className="btn cursor-pointer">
+          {tex?.present ? 'Replace .tex' : 'Upload .tex'}
+        </label>
+
+        {/* Most real resumes come from a template written for pdflatex. Say so
+            now, with the repair, rather than at the first failed render. */}
+        <LatexIssues
+          issues={tex?.issues}
+          busy={busy}
+          onFix={async () => {
+            setBusy(true)
+            await act(() => api.fixResumeTex(), null)
+            setBusy(false)
+          }}
+        />
+      </div>
     </div>
   )
 }
