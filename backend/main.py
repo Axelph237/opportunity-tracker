@@ -44,10 +44,28 @@ from models import (
     Application,
     ApplicationCreate,
     ApplicationUpdate,
+    BankBullet,
+    BankBulletCreate,
+    BankBulletUpdate,
+    BankEntry,
+    BankEntryCreate,
+    BankEntryUpdate,
+    BankImportPreview,
+    BankReorder,
+    CoverageReport,
     DiscoveryRequest,
+    DraftProposal,
+    DraftPushResult,
+    JobPost,
+    JobPostCreate,
+    JobPostUpdate,
     Opportunity,
     OpportunityDetail,
     OpportunityUpdate,
+    ProposalResolve,
+    ResumeDraft,
+    ResumeDraftCreate,
+    ResumeDraftUpdate,
     ResumeStatus,
     ScrapeLog,
     ScrapeStatus,
@@ -1696,6 +1714,159 @@ def get_resume_links(instance_id: int) -> list[LinkedOpportunity]:
     except resumes_module.ResumeNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return [LinkedOpportunity(**row) for row in rows]
+
+
+# ---------------------------------------------------------------- resume builder
+
+@app.get("/api/bank/entries", response_model=list[BankEntry])
+def list_bank_entries() -> list[BankEntry]:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.post("/api/bank/entries", response_model=BankEntry, status_code=201)
+def create_bank_entry(payload: BankEntryCreate) -> BankEntry:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+# Registered before `/api/bank/entries/{entry_id}`, for the same reason
+# `/api/resumes/assets` is: "reorder" reaching the int-typed route first would
+# be a 422 rather than this handler.
+
+@app.post("/api/bank/entries/reorder", response_model=list[BankEntry])
+def reorder_bank_entries(payload: BankReorder) -> list[BankEntry]:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.post("/api/bank/import", response_model=BankImportPreview)
+def import_bank_entries(payload: Optional[dict[str, Any]] = None) -> BankImportPreview:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.get("/api/bank/entries/{entry_id}", response_model=BankEntry)
+def get_bank_entry(entry_id: int) -> BankEntry:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.patch("/api/bank/entries/{entry_id}", response_model=BankEntry)
+def update_bank_entry(entry_id: int, payload: BankEntryUpdate) -> BankEntry:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.delete("/api/bank/entries/{entry_id}", status_code=204)
+def delete_bank_entry(entry_id: int) -> None:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.post("/api/bank/entries/{entry_id}/bullets", response_model=BankBullet, status_code=201)
+def create_bank_bullet(entry_id: int, payload: BankBulletCreate) -> BankBullet:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.patch("/api/bank/bullets/{bullet_id}", response_model=BankBullet)
+def update_bank_bullet(bullet_id: int, payload: BankBulletUpdate) -> BankBullet:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.delete("/api/bank/bullets/{bullet_id}", status_code=204)
+def delete_bank_bullet(bullet_id: int) -> None:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.get("/api/job-posts", response_model=list[JobPost])
+def list_job_posts() -> list[JobPost]:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.post("/api/job-posts", response_model=JobPost, status_code=201)
+def create_job_post(payload: JobPostCreate) -> JobPost:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.get("/api/job-posts/{post_id}", response_model=JobPost)
+def get_job_post(post_id: int) -> JobPost:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.patch("/api/job-posts/{post_id}", response_model=JobPost)
+def update_job_post(post_id: int, payload: JobPostUpdate) -> JobPost:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.delete("/api/job-posts/{post_id}", status_code=204)
+def delete_job_post(post_id: int) -> None:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.post("/api/job-posts/{post_id}/fetch", response_model=JobPost)
+def fetch_job_post(post_id: int) -> JobPost:
+    """Pull the ad off its URL. A convenience: pasting the text is the real input."""
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.post("/api/job-posts/{post_id}/keywords", response_model=JobPost)
+def extract_job_post_keywords(post_id: int, refresh: bool = False) -> JobPost:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.get("/api/drafts", response_model=list[ResumeDraft])
+def list_drafts() -> list[ResumeDraft]:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.post("/api/drafts", response_model=ResumeDraft, status_code=201)
+def create_draft(payload: ResumeDraftCreate) -> ResumeDraft:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.get("/api/drafts/{draft_id}", response_model=ResumeDraft)
+def get_draft(draft_id: int) -> ResumeDraft:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.patch("/api/drafts/{draft_id}", response_model=ResumeDraft)
+def update_draft(draft_id: int, payload: ResumeDraftUpdate) -> ResumeDraft:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.delete("/api/drafts/{draft_id}", status_code=204)
+def delete_draft(draft_id: int) -> None:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.get("/api/drafts/{draft_id}/coverage", response_model=CoverageReport)
+def get_draft_coverage(draft_id: int) -> CoverageReport:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.get("/api/drafts/{draft_id}/latex", response_model=DraftPushResult)
+def get_draft_latex(draft_id: int) -> DraftPushResult:
+    """What a push would write, without writing it."""
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.post("/api/drafts/{draft_id}/push", response_model=DraftPushResult)
+def push_draft(draft_id: int, force: bool = False) -> DraftPushResult:
+    """Write the rendered document into the linked resume variant.
+
+    A variant hand-edited since the last push comes back `diverged` and
+    unwritten; `force=true` overwrites it anyway.
+    """
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.post("/api/drafts/{draft_id}/tailor", response_model=DraftProposal)
+def tailor_draft(draft_id: int) -> DraftProposal:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.get("/api/drafts/{draft_id}/proposals", response_model=list[DraftProposal])
+def list_draft_proposals(draft_id: int) -> list[DraftProposal]:
+    raise HTTPException(status_code=501, detail="not implemented")
+
+
+@app.post("/api/proposals/{proposal_id}/resolve", response_model=ResumeDraft)
+def resolve_proposal(proposal_id: int, payload: ProposalResolve) -> ResumeDraft:
+    raise HTTPException(status_code=501, detail="not implemented")
 
 
 # ----------------------------------------------------------------- the built UI
