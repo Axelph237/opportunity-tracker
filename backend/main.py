@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 
 import advisor
 import favicons as favicons_module
+import jobposts
 import latex as latex_module
 import resumes as resumes_module
 import scheduler as scheduler_module
@@ -1774,38 +1775,76 @@ def delete_bank_bullet(bullet_id: int) -> None:
 
 @app.get("/api/job-posts", response_model=list[JobPost])
 def list_job_posts() -> list[JobPost]:
-    raise HTTPException(status_code=501, detail="not implemented")
+    return [JobPost(**post) for post in jobposts.list_posts()]
 
 
 @app.post("/api/job-posts", response_model=JobPost, status_code=201)
 def create_job_post(payload: JobPostCreate) -> JobPost:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        post = jobposts.create_post(payload.model_dump())
+    except sqlite3.IntegrityError as exc:
+        raise _integrity_error(exc, unique_detail="That listing already has a job post") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JobPost(**post)
 
 
 @app.get("/api/job-posts/{post_id}", response_model=JobPost)
 def get_job_post(post_id: int) -> JobPost:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        return JobPost(**jobposts.get_post(post_id))
+    except jobposts.JobPostNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.patch("/api/job-posts/{post_id}", response_model=JobPost)
 def update_job_post(post_id: int, payload: JobPostUpdate) -> JobPost:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        post = jobposts.update_post(post_id, payload.model_dump(exclude_unset=True))
+    except jobposts.JobPostNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except sqlite3.IntegrityError as exc:
+        raise _integrity_error(exc, unique_detail="That listing already has a job post") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JobPost(**post)
 
 
 @app.delete("/api/job-posts/{post_id}", status_code=204)
 def delete_job_post(post_id: int) -> None:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        jobposts.delete_post(post_id)
+    except jobposts.JobPostNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/api/job-posts/{post_id}/fetch", response_model=JobPost)
 def fetch_job_post(post_id: int) -> JobPost:
     """Pull the ad off its URL. A convenience: pasting the text is the real input."""
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        post = jobposts.fetch_post_text(post_id)
+    except jobposts.JobPostNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except jobposts.JobPostError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return JobPost(**post)
 
 
 @app.post("/api/job-posts/{post_id}/keywords", response_model=JobPost)
 def extract_job_post_keywords(post_id: int, refresh: bool = False) -> JobPost:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        post = jobposts.extract_keywords(post_id, refresh=refresh)
+    except jobposts.JobPostNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except jobposts.JobPostError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ClaudeUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return JobPost(**post)
 
 
 @app.get("/api/drafts", response_model=list[ResumeDraft])
