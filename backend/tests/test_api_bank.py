@@ -23,17 +23,7 @@ STUBBED_ROUTES = [
     ("DELETE", "/api/job-posts/1", None),
     ("POST", "/api/job-posts/1/fetch", None),
     ("POST", "/api/job-posts/1/keywords", None),
-    ("GET", "/api/drafts", None),
-    ("POST", "/api/drafts", {"name": "For ACME"}),
-    ("GET", "/api/drafts/1", None),
-    ("PATCH", "/api/drafts/1", {"name": "For ACME, v2"}),
-    ("DELETE", "/api/drafts/1", None),
-    ("GET", "/api/drafts/1/coverage", None),
-    ("GET", "/api/drafts/1/latex", None),
-    ("POST", "/api/drafts/1/push", None),
     ("POST", "/api/drafts/1/tailor", None),
-    ("GET", "/api/drafts/1/proposals", None),
-    ("POST", "/api/proposals/1/resolve", {"action": "apply"}),
 ]
 
 
