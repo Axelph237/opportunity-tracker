@@ -6,6 +6,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from bank import BulletStyle, EntryKind
+
 SourceType = Literal["job_board", "company_careers", "research_program", "aggregator", "university", "government"]
 ScrapeMethod = Literal["html", "api", "search_query"]
 OpportunityType = Literal["internship", "job", "research", "grad_program", "fellowship", "other"]
@@ -527,6 +529,312 @@ class LinkedOpportunity(BaseModel):
     deadline: Optional[str] = None
     relevance_score: Optional[float] = None
     advice_generated_at: Optional[str] = None
+
+
+# ------------------------------------------------------------------- experience bank
+
+class BankBullet(BaseModel):
+    id: int
+    entry_id: int
+    text: str
+    position: int = 0
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class BankBulletCreate(BaseModel):
+    text: str
+    position: Optional[int] = None
+
+    @field_validator("text")
+    @classmethod
+    def _required_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("cannot be empty")
+        return value.strip()
+
+
+class BankBulletUpdate(BaseModel):
+    text: Optional[str] = None
+    position: Optional[int] = None
+
+    @field_validator("text")
+    @classmethod
+    def _required_text(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.strip():
+            raise ValueError("cannot be empty")
+        return value.strip() if value is not None else None
+
+
+class BankEntry(BaseModel):
+    id: int
+    kind: EntryKind
+    title: str
+    organization: Optional[str] = None
+    location: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    is_current: bool = False
+    url: Optional[str] = None
+    detail: Optional[str] = None
+    position: int = 0
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    bullets: list[BankBullet] = Field(default_factory=list)
+
+
+class BankEntryCreate(BaseModel):
+    kind: EntryKind
+    title: str
+    organization: Optional[str] = None
+    location: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    is_current: bool = False
+    url: Optional[str] = None
+    detail: Optional[str] = None
+    # Bullets travel with the entry so confirming an import costs one request
+    # per record rather than one per line.
+    bullets: list[str] = Field(default_factory=list)
+
+    @field_validator("title")
+    @classmethod
+    def _named(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("cannot be empty")
+        return value.strip()
+
+
+class BankEntryUpdate(BaseModel):
+    kind: Optional[EntryKind] = None
+    title: Optional[str] = None
+    organization: Optional[str] = None
+    location: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    is_current: Optional[bool] = None
+    url: Optional[str] = None
+    detail: Optional[str] = None
+
+    @field_validator("title")
+    @classmethod
+    def _named(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.strip():
+            raise ValueError("cannot be empty")
+        return value.strip() if value is not None else None
+
+
+class BankReorder(BaseModel):
+    """Entry ids in the order the user dragged them into."""
+
+    ids: list[int] = Field(default_factory=list)
+
+
+class BankImportPreview(BaseModel):
+    """Entries read out of an existing resume, offered before anything is written."""
+
+    entries: list[BankEntryCreate] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------- resume drafts
+
+KeywordBucket = Literal["technical", "verb", "professional"]
+
+
+class Keyword(BaseModel):
+    term: str
+    bucket: KeywordBucket = "technical"
+    weight: float = 1.0
+    # Irregular forms, supplied by the extractor: coverage matching folds only
+    # -s/-es/-ed/-ing and is deliberately not a stemmer.
+    variants: list[str] = Field(default_factory=list)
+
+
+class JobPost(BaseModel):
+    id: int
+    opportunity_id: Optional[int] = None
+    title: str
+    organization: Optional[str] = None
+    url: Optional[str] = None
+    raw_text: str = ""
+    source: Literal["pasted", "fetched"] = "pasted"
+    keywords: list[Keyword] = Field(default_factory=list)
+    extracted_at: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class JobPostCreate(BaseModel):
+    opportunity_id: Optional[int] = None
+    title: str
+    organization: Optional[str] = None
+    url: Optional[str] = None
+    raw_text: str = ""
+    source: Literal["pasted", "fetched"] = "pasted"
+
+    @field_validator("title")
+    @classmethod
+    def _named(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("cannot be empty")
+        return value.strip()
+
+
+class JobPostUpdate(BaseModel):
+    opportunity_id: Optional[int] = None
+    title: Optional[str] = None
+    organization: Optional[str] = None
+    url: Optional[str] = None
+    raw_text: Optional[str] = None
+    source: Optional[Literal["pasted", "fetched"]] = None
+    keywords: Optional[list[Keyword]] = None
+
+    @field_validator("title")
+    @classmethod
+    def _named(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.strip():
+            raise ValueError("cannot be empty")
+        return value.strip() if value is not None else None
+
+
+class Coverage(BaseModel):
+    term: str
+    bucket: KeywordBucket = "technical"
+    covered: bool = False
+    hits: int = 0
+    where: list[str] = Field(default_factory=list)   # refs of the placements carrying the term
+
+
+class CoverageReport(BaseModel):
+    draft_id: int
+    job_post_id: Optional[int] = None
+    covered: int = 0
+    total: int = 0
+    keywords: list[Coverage] = Field(default_factory=list)
+
+
+class DraftBulletRef(BaseModel):
+    ref: str                       # stable uuid4 hex, unique within the draft
+    text: str                      # the snapshot. This is what renders.
+    source_bullet_id: Optional[int] = None
+    source_text: Optional[str] = None   # what the bank said when snapshotted; drift = != bank.text
+
+
+class DraftPlacement(BaseModel):
+    ref: str
+    entry_id: Optional[int] = None  # None once the bank entry is deleted; the draft still renders
+    kind: str
+    title: str
+    organization: Optional[str] = None
+    location: Optional[str] = None
+    dates: Optional[str] = None     # already-formatted, e.g. "Jun 2026 -- Sep 2026"
+    detail: Optional[str] = None
+    url: Optional[str] = None
+    bullets: list[DraftBulletRef] = Field(default_factory=list)
+
+
+class DraftSection(BaseModel):
+    ref: str
+    label: str                      # renameable per job, e.g. "Research and Project Experience"
+    bullet_style: BulletStyle = "bullets"
+    placements: list[DraftPlacement] = Field(default_factory=list)
+
+
+class DraftBody(BaseModel):
+    sections: list[DraftSection] = Field(default_factory=list)
+
+
+class ResumeDraft(BaseModel):
+    id: int
+    name: str
+    job_post_id: Optional[int] = None
+    resume_instance_id: Optional[int] = None
+    body: DraftBody = Field(default_factory=DraftBody)
+    pushed_latex: Optional[str] = None
+    pushed_at: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class ResumeDraftCreate(BaseModel):
+    name: str = "New draft"
+    job_post_id: Optional[int] = None
+    resume_instance_id: Optional[int] = None
+
+    @field_validator("name")
+    @classmethod
+    def _named(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("cannot be empty")
+        return value.strip()
+
+
+class ResumeDraftUpdate(BaseModel):
+    name: Optional[str] = None
+    job_post_id: Optional[int] = None
+    resume_instance_id: Optional[int] = None
+    body: Optional[DraftBody] = None
+
+    @field_validator("name")
+    @classmethod
+    def _named(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.strip():
+            raise ValueError("cannot be empty")
+        return value.strip() if value is not None else None
+
+
+class ProposalOp(BaseModel):
+    """One operation from the closed algebra a proposal may use.
+
+    `entry_id` and `bullet_id` have to name rows that already exist. That is
+    the structural reason a tailoring pass cannot invent experience: there is
+    no operation that introduces a record, only ones that place, move, drop or
+    reword records the user already wrote.
+    """
+
+    op: Literal["AddEntry", "DropEntry", "MoveEntry", "RenameSection",
+                "AddBullet", "DropBullet", "MoveBullet", "RewriteBullet"]
+    accepted: bool = True
+    rationale: Optional[str] = None
+    entry_id: Optional[int] = None
+    bullet_id: Optional[int] = None
+    section: Optional[str] = None
+    section_id: Optional[str] = None
+    label: Optional[str] = None
+    placement_id: Optional[str] = None
+    bullet_ref: Optional[str] = None
+    position: Optional[int] = None
+    text: Optional[str] = None
+
+
+class DraftProposal(BaseModel):
+    id: int
+    draft_id: int
+    kind: Literal["tailor", "sync"]
+    status: Literal["pending", "applied", "dismissed"] = "pending"
+    summary: Optional[str] = None
+    operations: list[ProposalOp] = Field(default_factory=list)
+    created_at: Optional[str] = None
+    resolved_at: Optional[str] = None
+
+
+class ProposalResolve(BaseModel):
+    action: Literal["apply", "dismiss"] = "apply"
+    # The reviewed set, each op carrying the accept state the user left it in.
+    # Absent applies the proposal as stored.
+    operations: Optional[list[ProposalOp]] = None
+
+
+class DraftPushResult(BaseModel):
+    draft_id: int
+    resume_instance_id: Optional[int] = None
+    latex: str = ""
+    pushed: bool = False
+    # The instance no longer matches what we last wrote to it, so somebody
+    # hand-edited it and overwriting would throw that away.
+    diverged: bool = False
+    pushed_latex: Optional[str] = None
+    pushed_at: Optional[str] = None
 
 
 OpportunityDetail.model_rebuild()
