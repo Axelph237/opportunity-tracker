@@ -34,9 +34,9 @@ function buildPattern(terms) {
  * `text` with every occurrence of `terms` wrapped in a `<mark>`.
  *
  * Nodes, never a string of HTML. Everything this marks up is either a scraped
- * job ad or text the user pasted into it, `dangerouslySetInnerHTML` appears
- * nowhere in this app, and that is the whole reason this is a component rather
- * than a replace() over a template string.
+ * job ad or text pasted out of one, React's raw-HTML escape hatch is used
+ * nowhere in this app, and keeping it that way is the whole reason this is a
+ * component rather than a replace() over a template string.
  */
 export default function HighlightedText({ text, terms = [] }) {
   const source = typeof text === 'string' ? text : ''

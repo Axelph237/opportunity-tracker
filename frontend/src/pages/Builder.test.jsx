@@ -159,6 +159,14 @@ describe('Builder / the three panes', () => {
     expect(screen.getByRole('button', { name: /start a resume/i })).toBeInTheDocument()
     expect(api.draft).not.toHaveBeenCalled()
   })
+
+  it('does not ask for the ad before there is a draft to attach it to', async () => {
+    // Otherwise the form is reachable with nothing behind it, and saving the
+    // ad has no draft to point at.
+    await setup({ drafts: [], draft: null })
+    expect(screen.queryByRole('textbox', { name: /the ad/i })).not.toBeInTheDocument()
+    expect(screen.queryByText('Keyword coverage')).not.toBeInTheDocument()
+  })
 })
 
 describe('Builder / an empty bank', () => {

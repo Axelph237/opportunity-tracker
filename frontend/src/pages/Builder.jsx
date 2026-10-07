@@ -456,43 +456,50 @@ export default function Builder() {
             </div>
           </div>
         ) : (
-          <div className="min-w-0 flex-1">
-            <DraftCanvas
-              body={draft.body}
-              bank={bank}
-              terms={terms}
-              droppingEntry={draggingEntry}
-              focusedPlacement={focusedPlacement}
-              onChange={commit}
+          // The coverage pane comes with the draft: an ad pasted before there
+          // is anything to measure it against has nowhere to attach.
+          <>
+            <div className="min-w-0 flex-1">
+              <DraftCanvas
+                body={draft.body}
+                bank={bank}
+                terms={terms}
+                droppingEntry={draggingEntry}
+                focusedPlacement={focusedPlacement}
+                onChange={commit}
+              />
+            </div>
+
+            <ResizeHandle
+              orientation="vertical"
+              label="Resize the coverage panel"
+              value={coverageWidth}
+              onChange={setCoverageWidth}
+              onReset={resetCoverage}
+              min={COVERAGE_WIDTH.min}
+              max={COVERAGE_WIDTH.max}
+              invert
             />
-          </div>
+
+            <aside
+              className="h-full min-h-0 shrink-0 bg-surface-container"
+              style={{ width: coverageWidth }}
+            >
+              <CoveragePanel
+                jobPost={jobPost}
+                coverage={coverage}
+                loading={coverageLoading}
+                busy={busy}
+                extracting={extracting}
+                generating={generating}
+                onSaveJobPost={saveJobPost}
+                onExtract={extractKeywords}
+                onLocate={setFocusedPlacement}
+                onTailor={tailor}
+              />
+            </aside>
+          </>
         )}
-
-        <ResizeHandle
-          orientation="vertical"
-          label="Resize the coverage panel"
-          value={coverageWidth}
-          onChange={setCoverageWidth}
-          onReset={resetCoverage}
-          min={COVERAGE_WIDTH.min}
-          max={COVERAGE_WIDTH.max}
-          invert
-        />
-
-        <aside className="h-full min-h-0 shrink-0 bg-surface-container" style={{ width: coverageWidth }}>
-          <CoveragePanel
-            jobPost={jobPost}
-            coverage={coverage}
-            loading={coverageLoading}
-            busy={busy}
-            extracting={extracting}
-            generating={generating}
-            onSaveJobPost={saveJobPost}
-            onExtract={extractKeywords}
-            onLocate={setFocusedPlacement}
-            onTailor={tailor}
-          />
-        </aside>
       </div>
 
       <SlidePanel
