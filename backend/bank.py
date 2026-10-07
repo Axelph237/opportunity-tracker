@@ -35,3 +35,13 @@ ENTRY_KINDS: dict[str, KindLayout] = {
     "presentation": KindLayout("presentation", "Presentations", "bullets", "plain"),
     "certification": KindLayout("certification", "Certifications", "bullets", "plain"),
 }
+
+# What an unrecognised kind lays out as. A draft snapshots the kind it was
+# composed with, so a kind retired from the registry would otherwise make a
+# resume the user already sent unrenderable.
+FALLBACK_LAYOUT = KindLayout("", "Experience", "bullets", "plain")
+
+
+def layout_for(kind: str | None) -> KindLayout:
+    """The registry row a placement of this kind renders through."""
+    return ENTRY_KINDS.get(kind or "", FALLBACK_LAYOUT)
