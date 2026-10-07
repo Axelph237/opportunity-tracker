@@ -322,3 +322,43 @@ def test_fetching_a_post_with_no_url_is_a_400(app_client):
 
 def test_fetching_a_post_that_does_not_exist_is_a_404(app_client):
     assert app_client.post("/api/job-posts/999/fetch").status_code == 404
+
+
+def test_an_advertisement_longer_than_the_cap_is_truncated_rather_than_rejected(app_client):
+    post = _create(app_client, raw_text="word " * 10_000)
+
+    assert len(post["raw_text"]) == jobposts.MAX_POST_CHARS
+
+
+def test_unlinking_a_job_post_frees_the_listing_for_another_post(app_client, db_path):
+    with database.get_db() as conn:
+        opportunity_id = _seed_opportunity(conn)
+    first = _create(app_client, title="First", opportunity_id=opportunity_id)
+
+    unlinked = app_client.patch(f"/api/job-posts/{first['id']}", json={"opportunity_id": None})
+    assert unlinked.status_code == 200
+    assert unlinked.json()["opportunity_id"] is None
+
+    second = app_client.post(
+        "/api/job-posts",
+        json={"title": "Second", "raw_text": AD, "opportunity_id": opportunity_id},
+    )
+    assert second.status_code == 201
+    assert second.json()["opportunity_id"] == opportunity_id
+
+
+def test_a_post_with_a_blank_title_is_refused_by_the_service_not_just_the_request_model(db_path):
+    """`create_post` is called directly by other modules, so its own guard matters."""
+    with pytest.raises(ValueError):
+        jobposts.create_post({"title": "   ", "raw_text": AD})
+
+
+def test_the_keyword_list_is_capped_however_many_the_model_returns(app_client, monkeypatch):
+    flood = {"keywords": [{"term": f"term{index}"} for index in range(60)]}
+    monkeypatch.setattr(jobposts, "run_claude", lambda *a, **kw: json.dumps(flood))
+    post = _create(app_client)
+
+    keywords = app_client.post(f"/api/job-posts/{post['id']}/keywords").json()["keywords"]
+
+    assert len(keywords) == jobposts.MAX_KEYWORDS
+    assert keywords[0]["term"] == "term0"

@@ -6,7 +6,16 @@ these tests prove that by never asking for any of them.
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
+import keywords
 from keywords import coverage, fold, plain_text, tokenize
+
+# A whitelist rather than a blacklist. Any new import into the pure half should
+# cost someone a deliberate edit here, which is the only thing that keeps it
+# pure as the module grows.
+ALLOWED_IMPORTS = {"__future__", "re", "typing", "latex"}
 
 # The shape resume.tex uses for every project. latex.strip_latex only unwraps
 # the flat \href{url}{label} form, so this nested one leaks its url.
@@ -138,3 +147,22 @@ def test_plain_text_drops_the_url_and_keeps_the_prose_around_it():
     assert "pytorch" not in out.lower()
     assert "github" not in out.lower()
     assert "Delphi" in out
+
+
+def test_the_matcher_imports_nothing_that_needs_a_model_a_socket_or_a_database():
+    """Purity is the feature, not a tidiness preference.
+
+    The coverage panel re-runs this on every edit of a draft, and a matcher
+    that reached for `claude_cli` or a connection could be neither fast enough
+    nor testable without stubbing half the app.
+    """
+    tree = ast.parse(Path(keywords.__file__).read_text(encoding="utf-8"))
+
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+
+    assert imported <= ALLOWED_IMPORTS, f"unexpected imports: {sorted(imported - ALLOWED_IMPORTS)}"
