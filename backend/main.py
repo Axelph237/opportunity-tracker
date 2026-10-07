@@ -18,6 +18,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import advisor
+import bank as bank_module
+import drafts as drafts_module
 import favicons as favicons_module
 import jobposts
 import latex as latex_module
@@ -1721,12 +1723,15 @@ def get_resume_links(instance_id: int) -> list[LinkedOpportunity]:
 
 @app.get("/api/bank/entries", response_model=list[BankEntry])
 def list_bank_entries() -> list[BankEntry]:
-    raise HTTPException(status_code=501, detail="not implemented")
+    return [BankEntry(**entry) for entry in bank_module.list_entries()]
 
 
 @app.post("/api/bank/entries", response_model=BankEntry, status_code=201)
 def create_bank_entry(payload: BankEntryCreate) -> BankEntry:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        return BankEntry(**bank_module.create_entry(payload.model_dump()))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # Registered before `/api/bank/entries/{entry_id}`, for the same reason
@@ -1735,7 +1740,7 @@ def create_bank_entry(payload: BankEntryCreate) -> BankEntry:
 
 @app.post("/api/bank/entries/reorder", response_model=list[BankEntry])
 def reorder_bank_entries(payload: BankReorder) -> list[BankEntry]:
-    raise HTTPException(status_code=501, detail="not implemented")
+    return [BankEntry(**entry) for entry in bank_module.reorder(payload.ids)]
 
 
 @app.post("/api/bank/import", response_model=BankImportPreview)
@@ -1745,32 +1750,60 @@ def import_bank_entries(payload: Optional[dict[str, Any]] = None) -> BankImportP
 
 @app.get("/api/bank/entries/{entry_id}", response_model=BankEntry)
 def get_bank_entry(entry_id: int) -> BankEntry:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        return BankEntry(**bank_module.get_entry(entry_id))
+    except bank_module.BankNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.patch("/api/bank/entries/{entry_id}", response_model=BankEntry)
 def update_bank_entry(entry_id: int, payload: BankEntryUpdate) -> BankEntry:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        entry = bank_module.update_entry(entry_id, payload.model_dump(exclude_unset=True))
+    except bank_module.BankNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return BankEntry(**entry)
 
 
 @app.delete("/api/bank/entries/{entry_id}", status_code=204)
 def delete_bank_entry(entry_id: int) -> None:
-    raise HTTPException(status_code=501, detail="not implemented")
+    """Remove a record. Drafts that already placed it keep their snapshot."""
+    try:
+        bank_module.delete_entry(entry_id)
+    except bank_module.BankNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/api/bank/entries/{entry_id}/bullets", response_model=BankBullet, status_code=201)
 def create_bank_bullet(entry_id: int, payload: BankBulletCreate) -> BankBullet:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        bullet = bank_module.create_bullet(entry_id, payload.text, payload.position)
+    except bank_module.BankNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return BankBullet(**bullet)
 
 
 @app.patch("/api/bank/bullets/{bullet_id}", response_model=BankBullet)
 def update_bank_bullet(bullet_id: int, payload: BankBulletUpdate) -> BankBullet:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        bullet = bank_module.update_bullet(bullet_id, payload.model_dump(exclude_unset=True))
+    except bank_module.BankNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return BankBullet(**bullet)
 
 
 @app.delete("/api/bank/bullets/{bullet_id}", status_code=204)
 def delete_bank_bullet(bullet_id: int) -> None:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        bank_module.delete_bullet(bullet_id)
+    except bank_module.BankNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/job-posts", response_model=list[JobPost])
@@ -1849,48 +1882,93 @@ def extract_job_post_keywords(post_id: int, refresh: bool = False) -> JobPost:
 
 @app.get("/api/drafts", response_model=list[ResumeDraft])
 def list_drafts() -> list[ResumeDraft]:
-    raise HTTPException(status_code=501, detail="not implemented")
+    return [ResumeDraft(**draft) for draft in drafts_module.list_drafts()]
 
 
 @app.post("/api/drafts", response_model=ResumeDraft, status_code=201)
 def create_draft(payload: ResumeDraftCreate) -> ResumeDraft:
-    raise HTTPException(status_code=501, detail="not implemented")
+    draft = drafts_module.create_draft(
+        payload.name,
+        job_post_id=payload.job_post_id,
+        resume_instance_id=payload.resume_instance_id,
+    )
+    return ResumeDraft(**draft)
 
 
 @app.get("/api/drafts/{draft_id}", response_model=ResumeDraft)
 def get_draft(draft_id: int) -> ResumeDraft:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        return ResumeDraft(**drafts_module.get_draft(draft_id))
+    except drafts_module.DraftNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.patch("/api/drafts/{draft_id}", response_model=ResumeDraft)
 def update_draft(draft_id: int, payload: ResumeDraftUpdate) -> ResumeDraft:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        draft = drafts_module.update_draft(draft_id, payload.model_dump(exclude_unset=True))
+    except drafts_module.DraftNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ResumeDraft(**draft)
 
 
 @app.delete("/api/drafts/{draft_id}", status_code=204)
 def delete_draft(draft_id: int) -> None:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        drafts_module.delete_draft(draft_id)
+    except drafts_module.DraftNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/drafts/{draft_id}/coverage", response_model=CoverageReport)
 def get_draft_coverage(draft_id: int) -> CoverageReport:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        return CoverageReport(**drafts_module.coverage_report(draft_id))
+    except drafts_module.DraftNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/drafts/{draft_id}/latex", response_model=DraftPushResult)
 def get_draft_latex(draft_id: int) -> DraftPushResult:
     """What a push would write, without writing it."""
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        return DraftPushResult(**drafts_module.render_draft(draft_id))
+    except drafts_module.DraftNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/drafts/{draft_id}/push", response_model=DraftPushResult)
 def push_draft(draft_id: int, force: bool = False) -> DraftPushResult:
     """Write the rendered document into the linked resume variant.
 
-    A variant hand-edited since the last push comes back `diverged` and
-    unwritten; `force=true` overwrites it anyway.
+    A variant hand-edited since the last push is a 409 carrying both texts, so
+    the editor can show the diff rather than a dialog the user has to guess at.
+    `force=true` overwrites it anyway.
     """
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        return DraftPushResult(**drafts_module.push_draft(draft_id, force=force))
+    except drafts_module.DraftNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except drafts_module.PushConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": str(exc),
+                "draft_id": exc.draft_id,
+                "resume_instance_id": exc.resume_instance_id,
+                "latex": exc.rendered,
+                "pushed": False,
+                "diverged": True,
+                "current_latex": exc.current,
+                "pushed_latex": exc.pushed,
+            },
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/drafts/{draft_id}/tailor", response_model=DraftProposal)
@@ -1900,12 +1978,36 @@ def tailor_draft(draft_id: int) -> DraftProposal:
 
 @app.get("/api/drafts/{draft_id}/proposals", response_model=list[DraftProposal])
 def list_draft_proposals(draft_id: int) -> list[DraftProposal]:
-    raise HTTPException(status_code=501, detail="not implemented")
+    """Everything outstanding on this draft, drift included.
+
+    The drift check runs here because it is derived state: recomputing it when
+    the review surface is opened is what keeps a stale offer from sitting in
+    the list after the bank edit behind it was undone.
+    """
+    try:
+        drafts_module.sync_proposal(draft_id)
+        return [DraftProposal(**proposal) for proposal in drafts_module.list_proposals(draft_id)]
+    except drafts_module.DraftNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/api/proposals/{proposal_id}/resolve", response_model=ResumeDraft)
 def resolve_proposal(proposal_id: int, payload: ProposalResolve) -> ResumeDraft:
-    raise HTTPException(status_code=501, detail="not implemented")
+    """Apply the operations the user accepted, or drop the proposal entirely."""
+    operations = (
+        None if payload.operations is None
+        else [op.model_dump() for op in payload.operations]
+    )
+    try:
+        if payload.action == "dismiss":
+            draft = drafts_module.dismiss_proposal(proposal_id)
+        else:
+            draft = drafts_module.apply_proposal(proposal_id, operations)
+    except drafts_module.DraftNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ResumeDraft(**draft)
 
 
 # ----------------------------------------------------------------- the built UI
