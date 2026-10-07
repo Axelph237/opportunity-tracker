@@ -202,11 +202,84 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT
 );
 
+CREATE TABLE IF NOT EXISTS bank_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,            -- validated in Python against bank.ENTRY_KINDS, not a SQL CHECK:
+                                   -- the layout registry is the single source of truth for kinds
+    title TEXT NOT NULL,           -- role, project name, degree, or the skill-group label
+    organization TEXT,
+    location TEXT,
+    start_date TEXT,               -- free text as printed, e.g. "Jun 2026". Not a date type:
+                                   -- resumes print "Expected June 2027" and "Present"
+    end_date TEXT,
+    is_current INTEGER NOT NULL DEFAULT 0,
+    url TEXT,
+    detail TEXT,                   -- the one-line tagline / tech stack shown beside a project
+    position INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS bank_bullets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_id INTEGER NOT NULL REFERENCES bank_entries(id) ON DELETE CASCADE,
+    text TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS job_posts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Nullable on purpose. There is no POST /api/opportunities; listings come only from the
+    -- scraper, so a draft for a job the scraper never found must still be possible.
+    opportunity_id INTEGER REFERENCES opportunities(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    organization TEXT,
+    url TEXT,
+    raw_text TEXT NOT NULL,        -- the real ad. opportunities.description is a 258-char summary.
+    source TEXT NOT NULL DEFAULT 'pasted',   -- 'pasted' | 'fetched'
+    keywords TEXT,                 -- JSON array of {term, bucket, weight, variants[]}
+    extracted_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS resume_drafts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    job_post_id INTEGER REFERENCES job_posts(id) ON DELETE SET NULL,
+    resume_instance_id INTEGER REFERENCES resume_instances(id) ON DELETE SET NULL,
+    body TEXT NOT NULL DEFAULT '{"sections":[]}',   -- the whole ordered document, JSON
+    pushed_latex TEXT,             -- exactly what we last wrote to the instance, so divergence is
+                                   -- an exact comparison and the UI can show a real diff
+    pushed_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS draft_proposals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    draft_id INTEGER NOT NULL REFERENCES resume_drafts(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,            -- 'tailor' | 'sync'
+    status TEXT NOT NULL DEFAULT 'pending',   -- 'pending' | 'applied' | 'dismissed'
+    summary TEXT,
+    operations TEXT NOT NULL DEFAULT '[]',    -- JSON array of ops, each with its own accept state
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    resolved_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_opportunities_score ON opportunities(relevance_score);
 CREATE INDEX IF NOT EXISTS idx_opportunities_source ON opportunities(source_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_applications_opportunity ON applications(opportunity_id);
 CREATE INDEX IF NOT EXISTS idx_scrape_logs_source ON scrape_logs(source_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_resume_advice_opportunity ON resume_advice(opportunity_id);
+CREATE INDEX IF NOT EXISTS idx_bank_bullets_entry ON bank_bullets(entry_id, position);
+CREATE INDEX IF NOT EXISTS idx_bank_entries_kind ON bank_entries(kind, position);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_job_posts_opportunity
+    ON job_posts(opportunity_id) WHERE opportunity_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_resume_drafts_job_post ON resume_drafts(job_post_id);
+CREATE INDEX IF NOT EXISTS idx_draft_proposals_draft ON draft_proposals(draft_id, status);
 """
 
 
@@ -234,6 +307,42 @@ SEED_SOURCES = [
 ]
 
 
+# The document shell a draft renders into. Everything outside the %%RESUME-BODY%%
+# marker is the user's own: preamble, packages and the name/contact block never
+# come from the bank, so composing a resume cannot overwrite them. The marker is
+# a LaTeX comment, so the template still compiles untouched.
+RESUME_TEMPLATE = r"""\documentclass[letterpaper,11pt]{article}
+
+\usepackage[margin=0.75in]{geometry}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage[hidelinks]{hyperref}
+
+\pagestyle{empty}
+\titleformat{\section}{\large\bfseries}{}{0pt}{}[\titlerule]
+\titlespacing{\section}{0pt}{12pt}{6pt}
+\setlist[itemize]{leftmargin=*, topsep=2pt, itemsep=1pt}
+
+\newcommand{\entry}[4]{%
+  \textbf{#1} \hfill #2 \\
+  \textit{#3} \hfill \textit{#4}%
+}
+
+\begin{document}
+
+\begin{center}
+  {\LARGE \textbf{Your Name}} \\[4pt]
+  city, state $\cdot$ you@example.com $\cdot$ (000) 000-0000 \\
+  \href{https://github.com/you}{github.com/you} $\cdot$
+  \href{https://linkedin.com/in/you}{linkedin.com/in/you}
+\end{center}
+
+%%RESUME-BODY%%
+
+\end{document}
+"""
+
+
 DEFAULT_SETTINGS = {
     "cron_schedule": os.getenv("CRON_SCHEDULE", "0 8,18 * * *"),
     "model": os.getenv("CLAUDE_MODEL", "sonnet"),
@@ -248,6 +357,7 @@ DEFAULT_SETTINGS = {
     # Empty means "look for tectonic, latexmk, xelatex or pdflatex on PATH".
     "latex_bin": "",
     "onboarding_complete": "0",
+    "resume_template": RESUME_TEMPLATE,
 }
 
 
