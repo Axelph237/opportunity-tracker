@@ -24,6 +24,7 @@ Hard isolation rules enforced here:
 
 from __future__ import annotations
 
+import importlib
 import os
 import tempfile
 import threading
@@ -57,6 +58,16 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 REAL_PROJECT_ROOT = database.PROJECT_ROOT
 REAL_DB_PATH = REAL_PROJECT_ROOT / "data" / "opportunities.db"
 
+# AI modules later phases add. Listed by name and imported if present, so the
+# claude guard below covers them the moment they land rather than the day
+# someone remembers to extend the tuple.
+_LATER_AI_MODULES = []
+for _name in ("jobposts", "tailor"):
+    try:
+        _LATER_AI_MODULES.append(importlib.import_module(_name))
+    except ModuleNotFoundError:
+        pass
+
 
 # --------------------------------------------------------------------- safety
 
@@ -77,7 +88,7 @@ def _never_call_real_claude(monkeypatch):
             "specific entry point used by the code under test instead."
         )
 
-    for module in (claude_cli, classifier, advisor, source_discovery, walten, main):
+    for module in (claude_cli, classifier, advisor, source_discovery, walten, main, *_LATER_AI_MODULES):
         if hasattr(module, "run_claude"):
             monkeypatch.setattr(module, "run_claude", _forbidden, raising=False)
         if hasattr(module, "run_claude_json"):

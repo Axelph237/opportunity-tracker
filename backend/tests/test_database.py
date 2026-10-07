@@ -18,6 +18,7 @@ def test_init_db_creates_all_tables(db_path):
         "sources", "opportunities", "applications", "source_proposals",
         "scrape_logs", "walten_sessions", "walten_messages", "excluded_urls",
         "resume_advice", "role_analyses", "settings",
+        "bank_entries", "bank_bullets", "job_posts", "resume_drafts", "draft_proposals",
     }
     assert expected <= tables
 
@@ -169,12 +170,16 @@ def test_migration_is_a_noop_on_a_fresh_database(db_path):
     with database.get_db() as conn:
         before = {
             table: sorted(database._column_names(conn, table))
-            for table in ("sources", "opportunities", "applications", "role_analyses", "walten_messages")
+            for table in ("sources", "opportunities", "applications", "role_analyses",
+                          "walten_messages", "bank_entries", "bank_bullets", "job_posts",
+                          "resume_drafts", "draft_proposals")
         }
         database._migrate(conn)
         after = {
             table: sorted(database._column_names(conn, table))
-            for table in ("sources", "opportunities", "applications", "role_analyses", "walten_messages")
+            for table in ("sources", "opportunities", "applications", "role_analyses",
+                          "walten_messages", "bank_entries", "bank_bullets", "job_posts",
+                          "resume_drafts", "draft_proposals")
         }
     assert before == after
 
