@@ -35,6 +35,7 @@ MAX_VARIANTS = 8
 MAX_TITLE_CHARS = 300
 
 FETCH_TIMEOUT = 20.0
+KEYWORD_TIMEOUT = 300
 
 # A real ad runs to thousands of characters. Anything near this is a consent
 # wall, a JavaScript shell or an error page, and storing it would be worse than
@@ -102,6 +103,10 @@ def _text(value: Any, limit: int) -> Optional[str]:
     return out[:limit]
 
 
+# A garbage bucket or weight falls back to `models.Keyword`'s own defaults
+# rather than to a neutral value, so a hand-written keyword and a salvaged one
+# describe themselves the same way. Weight only orders the panel; it never
+# decides whether a term counts as covered.
 def _bucket(value: Any) -> str:
     candidate = str(value or "").strip().lower().replace(" ", "_")
     return candidate if candidate in BUCKETS else "technical"
@@ -243,10 +248,9 @@ def delete_post(post_id: int) -> None:
 def fetch_post_text(post_id: int) -> dict[str, Any]:
     """Re-read the ad from its URL, or explain why the user has to paste it.
 
-    Measured across the live URL set, 12 of 17 domains return usable text and
-    the rest answer 403. That is the web, not a bug here, so every failure path
-    ends in a message naming the domain and asking for a paste, and none of
-    them writes the refusal page into `raw_text`.
+    Measured over the live URL set in October 2025, 12 of 17 domains returned
+    usable text and the rest answered 403. Refusal is normal, so no failure
+    path here writes the page it got into `raw_text`.
     """
     post = get_post(post_id)
     url = (post.get("url") or "").strip()
@@ -290,9 +294,15 @@ def fetch_post_text(post_id: int) -> dict[str, Any]:
 def extract_keywords(
     post_id: int, *, model: Optional[str] = None, refresh: bool = False
 ) -> dict[str, Any]:
-    """Ask Claude for the ad's own terms, in three buckets, and cache them."""
+    """Ask Claude for the ad's own terms, in three buckets.
+
+    Any stored keywords short-circuit the call, including ones the user typed
+    by hand, so re-opening a post cannot quietly overwrite their edits. An
+    extraction that found nothing stores nothing and is therefore retried;
+    `refresh` is the only way to overwrite a list that has content.
+    """
     post = get_post(post_id)
-    if post["keywords"] and post["extracted_at"] and not refresh:
+    if post["keywords"] and not refresh:
         return post
 
     raw_text = (post.get("raw_text") or "").strip()
@@ -310,7 +320,7 @@ def extract_keywords(
 
     try:
         data = extract_json(
-            run_claude(prompt, system=KEYWORD_SYSTEM_PROMPT, model=model, timeout=300)
+            run_claude(prompt, system=KEYWORD_SYSTEM_PROMPT, model=model, timeout=KEYWORD_TIMEOUT)
         )
     except (ClaudeCallError, ValueError) as exc:
         raise JobPostError(f"Could not extract keywords: {exc}") from exc

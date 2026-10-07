@@ -390,3 +390,19 @@ def test_hand_edited_keywords_replace_the_extracted_ones(app_client, monkeypatch
 
     assert response.status_code == 200
     assert [kw["term"] for kw in response.json()["keywords"]] == ["Verilog"]
+
+
+def test_extracting_keywords_does_not_overwrite_ones_the_user_typed_by_hand(app_client, monkeypatch):
+    """Hand-typed keywords on a never-extracted post used to be destroyed silently."""
+    monkeypatch.setattr(jobposts, "run_claude", lambda *a, **kw: json.dumps(FAKE_KEYWORDS))
+    post = _create(app_client)
+    app_client.patch(
+        f"/api/job-posts/{post['id']}",
+        json={"keywords": [{"term": "HandTyped", "bucket": "technical", "weight": 1.0, "variants": []}]},
+    )
+
+    kept = app_client.post(f"/api/job-posts/{post['id']}/keywords").json()
+    assert [kw["term"] for kw in kept["keywords"]] == ["HandTyped"]
+
+    replaced = app_client.post(f"/api/job-posts/{post['id']}/keywords?refresh=true").json()
+    assert [kw["term"] for kw in replaced["keywords"]] == ["Qiskit", "characterize", "collaboration"]

@@ -1,8 +1,4 @@
-"""Unit coverage for the pure keyword matcher.
-
-No fixtures: `keywords.py` touches no database, no network and no model, and
-these tests prove that by never asking for any of them.
-"""
+"""Unit coverage for the pure keyword matcher."""
 
 from __future__ import annotations
 

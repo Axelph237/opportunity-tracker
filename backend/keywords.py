@@ -17,7 +17,6 @@ from typing import Any, Iterable, Sequence
 
 from latex import strip_latex
 
-# Ordered longest first so the first match is the longest match.
 _SUFFIXES_LONGEST_FIRST = ("ing", "ed", "es", "s")
 
 # Enough of a stem to survive suffix stripping. "led" keeps its "ed" because
