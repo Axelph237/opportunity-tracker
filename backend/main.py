@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import advisor
+import bank as bank_module
 import favicons as favicons_module
 import latex as latex_module
 import resumes as resumes_module
@@ -1720,12 +1721,15 @@ def get_resume_links(instance_id: int) -> list[LinkedOpportunity]:
 
 @app.get("/api/bank/entries", response_model=list[BankEntry])
 def list_bank_entries() -> list[BankEntry]:
-    raise HTTPException(status_code=501, detail="not implemented")
+    return [BankEntry(**entry) for entry in bank_module.list_entries()]
 
 
 @app.post("/api/bank/entries", response_model=BankEntry, status_code=201)
 def create_bank_entry(payload: BankEntryCreate) -> BankEntry:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        return BankEntry(**bank_module.create_entry(payload.model_dump()))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # Registered before `/api/bank/entries/{entry_id}`, for the same reason
@@ -1734,7 +1738,7 @@ def create_bank_entry(payload: BankEntryCreate) -> BankEntry:
 
 @app.post("/api/bank/entries/reorder", response_model=list[BankEntry])
 def reorder_bank_entries(payload: BankReorder) -> list[BankEntry]:
-    raise HTTPException(status_code=501, detail="not implemented")
+    return [BankEntry(**entry) for entry in bank_module.reorder(payload.ids)]
 
 
 @app.post("/api/bank/import", response_model=BankImportPreview)
@@ -1744,32 +1748,60 @@ def import_bank_entries(payload: Optional[dict[str, Any]] = None) -> BankImportP
 
 @app.get("/api/bank/entries/{entry_id}", response_model=BankEntry)
 def get_bank_entry(entry_id: int) -> BankEntry:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        return BankEntry(**bank_module.get_entry(entry_id))
+    except bank_module.BankNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.patch("/api/bank/entries/{entry_id}", response_model=BankEntry)
 def update_bank_entry(entry_id: int, payload: BankEntryUpdate) -> BankEntry:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        entry = bank_module.update_entry(entry_id, payload.model_dump(exclude_unset=True))
+    except bank_module.BankNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return BankEntry(**entry)
 
 
 @app.delete("/api/bank/entries/{entry_id}", status_code=204)
 def delete_bank_entry(entry_id: int) -> None:
-    raise HTTPException(status_code=501, detail="not implemented")
+    """Remove a record. Drafts that already placed it keep their snapshot."""
+    try:
+        bank_module.delete_entry(entry_id)
+    except bank_module.BankNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/api/bank/entries/{entry_id}/bullets", response_model=BankBullet, status_code=201)
 def create_bank_bullet(entry_id: int, payload: BankBulletCreate) -> BankBullet:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        bullet = bank_module.create_bullet(entry_id, payload.text, payload.position)
+    except bank_module.BankNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return BankBullet(**bullet)
 
 
 @app.patch("/api/bank/bullets/{bullet_id}", response_model=BankBullet)
 def update_bank_bullet(bullet_id: int, payload: BankBulletUpdate) -> BankBullet:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        bullet = bank_module.update_bullet(bullet_id, payload.model_dump(exclude_unset=True))
+    except bank_module.BankNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return BankBullet(**bullet)
 
 
 @app.delete("/api/bank/bullets/{bullet_id}", status_code=204)
 def delete_bank_bullet(bullet_id: int) -> None:
-    raise HTTPException(status_code=501, detail="not implemented")
+    try:
+        bank_module.delete_bullet(bullet_id)
+    except bank_module.BankNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/job-posts", response_model=list[JobPost])
