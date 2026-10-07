@@ -362,3 +362,31 @@ def test_the_keyword_list_is_capped_however_many_the_model_returns(app_client, m
 
     assert len(keywords) == jobposts.MAX_KEYWORDS
     assert keywords[0]["term"] == "term0"
+
+
+def test_patching_a_post_onto_a_listing_another_post_already_claims_is_a_409(app_client, db_path):
+    with database.get_db() as conn:
+        opportunity_id = _seed_opportunity(conn)
+    _create(app_client, title="First", opportunity_id=opportunity_id)
+    second = _create(app_client, title="Second")
+
+    clash = app_client.patch(
+        f"/api/job-posts/{second['id']}", json={"opportunity_id": opportunity_id}
+    )
+
+    assert clash.status_code == 409
+    assert app_client.get(f"/api/job-posts/{second['id']}").json()["opportunity_id"] is None
+
+
+def test_hand_edited_keywords_replace_the_extracted_ones(app_client, monkeypatch):
+    monkeypatch.setattr(jobposts, "run_claude", lambda *a, **kw: json.dumps(FAKE_KEYWORDS))
+    post = _create(app_client)
+    app_client.post(f"/api/job-posts/{post['id']}/keywords")
+
+    response = app_client.patch(
+        f"/api/job-posts/{post['id']}",
+        json={"keywords": [{"term": "Verilog", "bucket": "technical", "weight": 0.5, "variants": []}]},
+    )
+
+    assert response.status_code == 200
+    assert [kw["term"] for kw in response.json()["keywords"]] == ["Verilog"]

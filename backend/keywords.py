@@ -4,7 +4,7 @@ Pure by design. No database, no network, no `claude_cli` import. The coverage
 panel re-runs this on every edit, and a matcher that needs a model or a socket
 could neither be fast enough nor tested without one.
 
-Both sides reduce to the same normal form -- a list of folded tokens -- and a
+Both sides reduce to the same normal form, a list of folded tokens, and a
 keyword matches when its tokens appear as a contiguous run of a segment's
 tokens. A single-word term is the one-token case of that same rule, so there is
 no second code path for it.
@@ -26,7 +26,7 @@ _MIN_STEM = 4
 
 _TOKEN_RE = re.compile(r"[A-Za-z0-9+#]+")
 
-_URL_RE = re.compile(r"(?:\b|(?<=[{(\[]))(?:https?://|www\.)[^\s{}\[\]()\\]+", re.IGNORECASE)
+_URL_RE = re.compile(r"\b(?:https?://|www\.)[^\s{}\[\]()\\]+", re.IGNORECASE)
 
 
 def fold(token: str) -> str:
@@ -105,9 +105,9 @@ def coverage(keywords: Iterable[dict], segments: Iterable[tuple[str, str]]) -> l
     `(segment_ref, text)` pairs. Returns one row per keyword in the order the
     keywords were given.
 
-    Normalising each segment through `plain_text` here rather than trusting the
-    caller to do it is deliberate: getting that order wrong is silent, and it
-    only has to happen at one call site to make the report lie.
+    Each segment is normalised through `plain_text` here rather than at the
+    call site. Getting that order wrong is silent, and it only has to happen
+    once anywhere to make the whole report lie.
     """
     haystacks = [(ref, tuple(tokenize(plain_text(text)))) for ref, text in segments]
 
