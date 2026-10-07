@@ -10,6 +10,7 @@ import { api } from './api'
 vi.mock('./pages/Opportunities', () => ({ default: () => <div>opportunities page</div> }))
 vi.mock('./pages/Applications', () => ({ default: () => <div>applications page</div> }))
 vi.mock('./pages/Resumes', () => ({ default: () => <div>resumes page</div> }))
+vi.mock('./pages/Builder', () => ({ default: () => <div>builder page</div> }))
 vi.mock('./pages/Insights', () => ({ default: () => <div>insights page</div> }))
 vi.mock('./pages/Sources', () => ({ default: () => <div>sources page</div> }))
 vi.mock('./pages/Settings', () => ({ default: () => <div>settings page</div> }))
@@ -194,6 +195,13 @@ describe('App / resizing the sidebar', () => {
     await waitFor(() => expect(screen.getByRole('link', { name: /Resumes/ })).toBeInTheDocument())
     expect(screen.getByText('4')).toBeInTheDocument()
   })
+
+  it('reaches the resume builder, which carries no count of its own', async () => {
+    const user = userEvent.setup()
+    await setup()
+    await user.click(screen.getByRole('link', { name: /Builder/ }))
+    expect(screen.getByText('builder page')).toBeInTheDocument()
+  })
 })
 
 
@@ -202,6 +210,7 @@ describe('App / reordering the sidebar', () => {
     '/opportunities',
     '/applications',
     '/resumes',
+    '/builder',
     '/insights',
     '/sources',
     '/settings',
@@ -242,6 +251,7 @@ describe('App / reordering the sidebar', () => {
       '/opportunities',
       '/applications',
       '/resumes',
+      '/builder',
       '/insights',
       '/sources',
     ])
@@ -293,6 +303,7 @@ describe('App / reordering the sidebar', () => {
       '/opportunities',
       '/resumes',
       '/applications',
+      '/builder',
       '/insights',
       '/sources',
       '/settings',
@@ -307,7 +318,7 @@ describe('App / reordering the sidebar', () => {
     fireEvent.keyDown(screen.getByRole('link', { name: /Settings/ }), { key: 'ArrowUp', altKey: true })
     cleanup()
     await setup()
-    expect(order()[4]).toBe('/settings')
+    expect(order()[5]).toBe('/settings')
   })
 
   it('leaves the arrow keys alone without the modifier', async () => {
