@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from keywords import coverage, fold, plain_text, tokenize
 
-# The shape resume.tex uses for every project: the url is nested inside the
-# \href label, which is the form latex.strip_latex cannot unwrap.
+# The shape resume.tex uses for every project. latex.strip_latex only unwraps
+# the flat \href{url}{label} form, so this nested one leaks its url.
 NESTED_HREF_HEADING = (
     r"\resumeProjectHeading{\href{https://github.com/me/pytorch-oracle}"
     r"{\textbf{Delphi} $|$ \emph{Rust, LLVM}}}{Jan 2024}"

@@ -45,8 +45,6 @@ BUCKETS = {"technical", "verb", "professional"}
 
 EDITABLE_FIELDS = ("opportunity_id", "title", "organization", "url", "raw_text", "source", "keywords")
 
-SOURCES = {"pasted", "fetched"}
-
 
 class JobPostNotFound(LookupError):
     """Raised when a job post id does not exist."""
@@ -188,7 +186,6 @@ def create_post(values: dict[str, Any]) -> dict[str, Any]:
     if not title:
         raise ValueError("A job post needs a title.")
 
-    source = values.get("source") if values.get("source") in SOURCES else "pasted"
     now = _now()
     with get_db() as conn:
         cur = conn.execute(
@@ -202,7 +199,7 @@ def create_post(values: dict[str, Any]) -> dict[str, Any]:
                 _text(values.get("organization"), 300),
                 _text(values.get("url"), 1000),
                 str(values.get("raw_text") or "")[:MAX_POST_CHARS],
-                source,
+                values.get("source") or "pasted",
                 now,
                 now,
             ),
@@ -220,8 +217,6 @@ def update_post(post_id: int, values: dict[str, Any]) -> dict[str, Any]:
         changes["title"] = title
     if "raw_text" in changes:
         changes["raw_text"] = str(changes["raw_text"] or "")[:MAX_POST_CHARS]
-    if "source" in changes and changes["source"] not in SOURCES:
-        raise ValueError(f"`source` must be one of {', '.join(sorted(SOURCES))}.")
     if "keywords" in changes:
         changes["keywords"] = json.dumps(_normalize_keywords(changes["keywords"]))
     if not changes:
