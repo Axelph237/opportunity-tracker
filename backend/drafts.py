@@ -201,15 +201,9 @@ def _snapshot(entry: dict) -> dict[str, Any]:
     write to the draft to explain it.
     """
     return {
+        **bank.printable(entry),
         "ref": _new_ref(),
         "entry_id": entry.get("id"),
-        "kind": entry.get("kind"),
-        "title": entry.get("title") or "",
-        "organization": entry.get("organization"),
-        "location": entry.get("location"),
-        "dates": bank.format_dates(entry),
-        "detail": entry.get("detail"),
-        "url": entry.get("url"),
         "bullets": [_snapshot_bullet(bullet) for bullet in entry.get("bullets") or []],
     }
 

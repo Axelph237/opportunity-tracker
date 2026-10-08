@@ -21,6 +21,7 @@ import advisor
 import bank as bank_module
 import contact as contact_module
 import library as library_module
+import compose as compose_module
 import slots as slots_module
 import drafts as drafts_module
 import favicons as favicons_module
@@ -75,6 +76,8 @@ from models import (
     LibraryResume,
     ResumeContact,
     SlotMarkers,
+    SlotPlacement,
+    SlotWrite,
     ResumeDraft,
     ResumeDraftCreate,
     ResumeDraftUpdate,
@@ -1916,6 +1919,36 @@ def extract_job_post_keywords(post_id: int, refresh: bool = False) -> JobPost:
     except ClaudeUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return JobPost(**post)
+
+
+@app.put("/api/resumes/{instance_id}/slots/{key}", response_model=list[DocumentSlot])
+def write_resume_slot(instance_id: int, key: str, payload: SlotWrite) -> list[DocumentSlot]:
+    """Replace one region of the document, and nothing else in it."""
+    try:
+        rows = compose_module.set_blocks(instance_id, key, [b.model_dump() for b in payload.blocks])
+    except resumes_module.ResumeNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except compose_module.ComposeError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except slots_module.SlotError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return [DocumentSlot(**row) for row in rows]
+
+
+@app.post("/api/resumes/{instance_id}/slots/{key}/placements", response_model=list[DocumentSlot])
+def place_in_resume_slot(instance_id: int, key: str, payload: SlotPlacement) -> list[DocumentSlot]:
+    """Put a bank record into a region, where the canvas dropped it."""
+    try:
+        rows = compose_module.place_entry(
+            instance_id, key, payload.entry_id, position=payload.position
+        )
+    except (resumes_module.ResumeNotFound, bank_module.BankNotFound) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except compose_module.ComposeError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except slots_module.SlotError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return [DocumentSlot(**row) for row in rows]
 
 
 @app.get("/api/slot-markers", response_model=SlotMarkers)

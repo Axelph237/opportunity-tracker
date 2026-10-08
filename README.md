@@ -247,6 +247,27 @@ the ones you want and leave the rest. It can only move, drop and reword what is
 already in your bank. There is no operation that invents a record, so it cannot
 give you experience you did not enter.
 
+**Slots** are how the composer and the LaTeX meet. A slot is a named stretch of
+a resume's source, marked with a pair of comments:
+
+```latex
+\resumeSubHeadingListStart
+% <<slot experience>>
+% <</slot>>
+\resumeSubHeadingListEnd
+```
+
+Everything outside every slot is yours and the composer never writes to it.
+Inside one, it arranges entries. Anything in there it does not recognise is
+carried along untouched rather than dropped, so you can hand-write whatever you
+like and it will survive being rearranged around.
+
+The list environment goes **outside** the markers. An entry prints an `\item`,
+so a slot holding entries has to sit inside a list, and which list that is stays
+your decision. The marker shape itself is yours too, under **Settings → Slots**,
+if you would rather use an environment or a macro of your own. They are comments
+by default so the file still compiles anywhere with nothing installed.
+
 **Push to resume** writes the draft out as the document, which compiles to a
 PDF like any other. The **Preview** tab beside the coverage panel pushes and
 renders in one go, so you can see the page without leaving what you are doing.

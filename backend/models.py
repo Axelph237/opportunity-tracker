@@ -849,6 +849,21 @@ class SlotBlock(BaseModel):
     bullets: list[str] = Field(default_factory=list)
 
 
+class SlotWrite(BaseModel):
+    """A region's new contents, in the order they should print."""
+
+    blocks: list[SlotBlock] = Field(default_factory=list)
+
+
+class SlotPlacement(BaseModel):
+    """Which bank record to put into a region, and where in it."""
+
+    entry_id: StrictInt
+    # Absent appends. The canvas sends an index when it dropped the record
+    # between two that were already there.
+    position: Optional[StrictInt] = None
+
+
 class DocumentSlot(BaseModel):
     """A named region of a resume, and what the composer sees in it."""
 

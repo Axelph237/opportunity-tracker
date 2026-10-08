@@ -51,10 +51,18 @@ export default function SlotMarkers({ act }) {
       <div className="rounded border border-outline-variant bg-surface-container p-3">
         <div className="label-data">How that reads in a document</div>
         <pre className="mt-2 overflow-x-auto font-code text-data text-on-surface-variant">
-{`${(form.open || '').replace('{name}', 'experience')}
+{`\\resumeSubHeadingListStart
+${(form.open || '').replace('{name}', 'experience')}
 \\resumeSubheading{UChicago PME}{Jun 2025 -- Present}{Research Assistant}{Chicago, IL}
-${form.close || ''}`}
+${form.close || ''}
+\\resumeSubHeadingListEnd`}
         </pre>
+        <p className="mt-2 text-on-surface-variant">
+          The list environment goes outside the markers. An entry prints an{' '}
+          <span className="font-mono text-on-surface">\item</span>, so a slot holding entries has
+          to sit inside a list, and that list stays yours rather than something the composer
+          writes.
+        </p>
       </div>
 
       {error ? <p className="text-error">{error}</p> : null}

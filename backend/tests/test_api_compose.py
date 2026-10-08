@@ -1,0 +1,217 @@
+"""Composing by rewriting a region of the resume's own source.
+
+There is no second structure kept in step with the document any more, so what
+matters here is that editing a region leaves everything else exactly as the
+user left it.
+"""
+
+from __future__ import annotations
+
+import latex
+
+# Captured at import, before conftest replaces the engine for every test.
+_REAL_COMPILE = latex.compile_pdf
+_REAL_AVAILABLE = latex.latex_available
+
+DOC = r"""\documentclass{article}
+\begin{document}
+\section{Experience}
+% <<slot experience>>
+\resumeSubheading{Fermilab}{2026}{Intern}{Batavia, IL}
+\resumeItemListStart
+  \resumeItem{Calibrated the readout}
+\resumeItemListEnd
+\hrule
+% <</slot>>
+Hand written prose nothing may touch.
+% <<slot projects>>
+% <</slot>>
+\end{document}
+"""
+
+
+def resume_with(client, latex: str = DOC) -> int:
+    made = client.post("/api/resumes", json={"name": "Slotted"}).json()
+    client.patch(f"/api/resumes/{made['id']}", json={"latex": latex})
+    return made["id"]
+
+
+def entry_with(client, **overrides) -> dict:
+    payload = {
+        "kind": "experience",
+        "title": "Research Assistant",
+        "organization": "UChicago PME",
+        "location": "Chicago, IL",
+        "start_date": "Jun 2025",
+        "is_current": True,
+        "bullets": ["Cut epoch time 38% on a PyTorch pipeline"],
+        **overrides,
+    }
+    return client.post("/api/bank/entries", json=payload).json()
+
+
+def source_of(client, instance_id: int) -> str:
+    return client.get(f"/api/resumes/{instance_id}").json()["latex"]
+
+
+def slot_named(rows, name: str) -> dict:
+    return next(row for row in rows if row["key"] == name)
+
+
+# ------------------------------------------------------- placing a record
+
+def test_placing_a_record_writes_it_into_the_document_itself(app_client):
+    instance_id = resume_with(app_client)
+    entry = entry_with(app_client)
+
+    response = app_client.post(
+        f"/api/resumes/{instance_id}/slots/experience/placements", json={"entry_id": entry["id"]}
+    )
+
+    assert response.status_code == 200, response.text
+    source = source_of(app_client, instance_id)
+    assert r"\resumeSubheading{UChicago PME}" in source
+    assert r"\resumeItem{Cut epoch time 38\% on a PyTorch pipeline}" in source
+
+
+def test_placing_a_record_leaves_the_rest_of_the_document_alone(app_client):
+    """The whole argument for slots. Everything outside the region, and the
+    other region, survive the edit."""
+    instance_id = resume_with(app_client)
+    entry = entry_with(app_client)
+
+    app_client.post(f"/api/resumes/{instance_id}/slots/experience/placements",
+                    json={"entry_id": entry["id"]})
+
+    source = source_of(app_client, instance_id)
+    assert "Hand written prose nothing may touch." in source
+    assert r"\documentclass{article}" in source
+    assert source.count("% <<slot ") == 2
+    assert r"\resumeSubheading{Fermilab}{2026}{Intern}{Batavia, IL}" in source
+
+
+def test_a_line_the_composer_cannot_read_survives_an_edit_to_its_region(app_client):
+    """`\\hrule` is not in the grammar, so it rides along as an opaque block
+    rather than being dropped on the first edit."""
+    instance_id = resume_with(app_client)
+    entry = entry_with(app_client)
+
+    app_client.post(f"/api/resumes/{instance_id}/slots/experience/placements",
+                    json={"entry_id": entry["id"]})
+
+    assert r"\hrule" in source_of(app_client, instance_id)
+
+
+def test_a_record_lands_where_it_was_dropped(app_client):
+    instance_id = resume_with(app_client)
+    entry = entry_with(app_client, title="Goes first")
+
+    rows = app_client.post(f"/api/resumes/{instance_id}/slots/experience/placements",
+                           json={"entry_id": entry["id"], "position": 0}).json()
+
+    blocks = slot_named(rows, "experience")["blocks"]
+    assert blocks[0]["args"][2] == "Goes first"
+
+
+def test_placing_into_a_region_the_document_lacks_is_a_404(app_client):
+    instance_id = resume_with(app_client)
+    entry = entry_with(app_client)
+
+    response = app_client.post(f"/api/resumes/{instance_id}/slots/education/placements",
+                               json={"entry_id": entry["id"]})
+
+    assert response.status_code == 404
+    assert "no slot called" in response.json()["detail"]
+
+
+# -------------------------------------------------------- rewriting a region
+
+def test_writing_a_region_back_unchanged_changes_the_document_not_at_all(app_client):
+    instance_id = resume_with(app_client)
+    before = source_of(app_client, instance_id)
+    blocks = slot_named(app_client.get(f"/api/resumes/{instance_id}/slots").json(), "experience")["blocks"]
+
+    app_client.put(f"/api/resumes/{instance_id}/slots/experience", json={"blocks": blocks})
+
+    assert source_of(app_client, instance_id) == before
+
+
+def test_reordering_blocks_reorders_the_source(app_client):
+    instance_id = resume_with(app_client)
+    entry = entry_with(app_client, title="Second")
+    rows = app_client.post(f"/api/resumes/{instance_id}/slots/experience/placements",
+                           json={"entry_id": entry["id"]}).json()
+    blocks = slot_named(rows, "experience")["blocks"]
+
+    app_client.put(f"/api/resumes/{instance_id}/slots/experience",
+                   json={"blocks": list(reversed(blocks))})
+
+    source = source_of(app_client, instance_id)
+    assert source.index("Second") < source.index("Intern")
+
+
+def test_emptying_a_region_leaves_its_markers_and_the_document_around_it(app_client):
+    instance_id = resume_with(app_client)
+
+    app_client.put(f"/api/resumes/{instance_id}/slots/experience", json={"blocks": []})
+
+    source = source_of(app_client, instance_id)
+    assert "% <<slot experience>>" in source
+    assert "Hand written prose nothing may touch." in source
+    assert r"\resumeSubheading{Fermilab}" not in source
+
+
+def test_a_document_whose_markers_do_not_pair_up_refuses_the_edit(app_client):
+    instance_id = resume_with(app_client, latex="% <<slot experience>>\nx\n")
+
+    response = app_client.put(f"/api/resumes/{instance_id}/slots/experience", json={"blocks": []})
+
+    assert response.status_code == 409
+
+
+# ------------------------------------------------------------- on the page
+
+WRAPPED = r"""\documentclass[letterpaper,11pt]{article}
+\usepackage{enumitem}
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0pt, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}}
+\newcommand{\resumeItem}[1]{\item\small{#1}}
+\newcommand{\resumeSubheading}[4]{\item \textbf{#1} \hfill #2 \\ \textit{\small #3}}
+\begin{document}
+\resumeSubHeadingListStart
+% <<slot experience>>
+% <</slot>>
+\resumeSubHeadingListEnd
+\end{document}
+"""
+
+
+def test_a_slot_inside_its_list_environment_composes_and_compiles(app_client, monkeypatch):
+    """The list belongs to the document, outside the markers. An entry prints
+    an `\\item`, so a slot of entries that is not inside a list compiles to
+    "Lonely \\item" and no page at all."""
+    import io
+
+    import latex
+    import pytest
+
+    real_available = _REAL_AVAILABLE
+    if not real_available():
+        pytest.skip("no TeX engine on this machine")
+    monkeypatch.setattr(latex, "latex_available", real_available)
+    pypdf = pytest.importorskip("pypdf")
+
+    instance_id = resume_with(app_client, latex=WRAPPED)
+    entry = entry_with(app_client)
+    app_client.post(f"/api/resumes/{instance_id}/slots/experience/placements",
+                    json={"entry_id": entry["id"]})
+
+    result = _REAL_COMPILE(source_of(app_client, instance_id), timeout=180)
+
+    assert result.ok is True, result.log
+    text = "".join(p.extract_text() for p in pypdf.PdfReader(io.BytesIO(result.pdf_bytes)).pages)
+    assert "Research Assistant" in text
+    assert "Cut epoch time 38%" in text
+    assert "slot" not in text.lower()

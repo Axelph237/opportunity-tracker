@@ -79,6 +79,25 @@ def format_dates(entry: dict[str, Any]) -> str:
     return start or end
 
 
+def printable(entry: dict[str, Any]) -> dict[str, Any]:
+    """A bank record as the fields a resume prints, and nothing else.
+
+    Shared by the draft snapshot and the slot composer so neither grows its
+    own copy of which fields a record contributes. A second copy of this has
+    drifted before.
+    """
+    return {
+        "kind": entry.get("kind"),
+        "title": entry.get("title") or "",
+        "organization": entry.get("organization"),
+        "location": entry.get("location"),
+        "dates": format_dates(entry),
+        "detail": entry.get("detail"),
+        "url": entry.get("url"),
+        "bullets": [{"text": bullet.get("text") or ""} for bullet in entry.get("bullets") or []],
+    }
+
+
 def bullet_dict(row: sqlite3.Row) -> dict[str, Any]:
     return dict(row)
 

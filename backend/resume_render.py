@@ -144,6 +144,16 @@ _BODIES: dict[str, Callable[[dict, KindLayout], str]] = {
 }
 
 
+def render_placement(placement: dict) -> str:
+    """One entry as the macros its kind calls for.
+
+    Public because the slot composer needs exactly this and must not grow a
+    second copy of the layout registry to get it.
+    """
+    layout = bank.layout_for(placement.get("kind"))
+    return _BODIES[layout.bullet_style](placement, layout)
+
+
 def render_section(section: dict) -> str:
     """One `\\section` and its entries, or nothing at all when it holds none.
 
@@ -153,8 +163,7 @@ def render_section(section: dict) -> str:
     """
     rendered = []
     for placement in section.get("placements") or []:
-        layout = bank.layout_for(placement.get("kind"))
-        block = _BODIES[layout.bullet_style](placement, layout)
+        block = render_placement(placement)
         if block.strip():
             rendered.append(block)
     if not rendered:
