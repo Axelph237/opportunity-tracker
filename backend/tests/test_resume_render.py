@@ -75,14 +75,26 @@ def test_a_percent_in_a_bullet_is_escaped_rather_than_commenting_out_the_line():
     assert "38% on" not in rendered
 
 
-def test_a_url_keeps_its_underscores_and_tildes_intact():
+def test_a_url_keeps_the_characters_that_are_part_of_the_address():
     """Escaping a URL the way prose is escaped would send the reader to an
-    address that does not exist."""
+    address that does not exist, so `_` and `~` stay as they are."""
     rendered = render(
-        placement(kind="project", title="Oracle", url="https://example.org/~me/a_b#frag")
+        placement(kind="project", title="Oracle", url="https://example.org/~me/a_b")
     )
 
-    assert r"\href{https://example.org/~me/a_b\#frag}" in rendered
+    assert r"\href{https://example.org/~me/a_b}" in rendered
+
+
+def test_a_url_escapes_the_characters_tex_would_act_on():
+    """`&` is the alignment tab. An unescaped one inside `\\href` ends the
+    macro's argument early and takes the compile down, so a query string is
+    enough to make a resume unbuildable."""
+    rendered = render(
+        placement(kind="project", title="Oracle",
+                  url="https://jobs.example.org/apply?id=7&src=resume#top")
+    )
+
+    assert r"\href{https://jobs.example.org/apply?id=7\&src=resume\#top}" in rendered
 
 
 # ------------------------------------------------------- layout off the registry
@@ -288,7 +300,10 @@ COMPILABLE_BODY = {
                     kind="project",
                     title="Delphi",
                     detail="Python, PyTorch",
-                    url="https://github.com/me/delphi",
+                    # The query string is the point: `&` is the alignment tab,
+                    # and `\resumeProjectHeading` lays its argument out in a
+                    # `tabular*` exactly as the user's own resume.tex does.
+                    url="https://github.com/me/delphi?tab=readme&v=2",
                     bullets=bullets("Trained the model"),
                 ),
             ],
