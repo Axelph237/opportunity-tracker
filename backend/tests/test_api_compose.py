@@ -215,3 +215,65 @@ def test_a_slot_inside_its_list_environment_composes_and_compiles(app_client, mo
     assert "Research Assistant" in text
     assert "Cut epoch time 38%" in text
     assert "slot" not in text.lower()
+
+
+# ------------------------------------------------- bringing drafts across
+
+def test_a_draft_becomes_a_document_the_composer_can_read_back(app_client):
+    """Drafts were the truth and LaTeX was generated from them. Converting one
+    has to leave the same structure findable in the document itself."""
+    entry = entry_with(app_client)
+    draft = app_client.post("/api/drafts", json={"name": "Legacy"}).json()
+    app_client.post(f"/api/drafts/{draft['id']}/placements", json={"entry_id": entry["id"]})
+
+    adopted = app_client.post(f"/api/drafts/{draft['id']}/adopt")
+
+    assert adopted.status_code == 200, adopted.text
+    rows = app_client.get(f"/api/resumes/{adopted.json()['id']}/slots").json()
+    assert [row["blocks"][0]["args"][2] for row in rows if row["blocks"]] == ["Research Assistant"]
+
+
+def test_converting_writes_into_the_resume_the_draft_was_already_pushed_to(app_client):
+    entry = entry_with(app_client)
+    draft = app_client.post("/api/drafts", json={"name": "Legacy"}).json()
+    app_client.post(f"/api/drafts/{draft['id']}/placements", json={"entry_id": entry["id"]})
+    pushed = app_client.post(f"/api/drafts/{draft['id']}/push").json()["resume_instance_id"]
+
+    adopted = app_client.post(f"/api/drafts/{draft['id']}/adopt").json()
+
+    assert adopted["id"] == pushed
+    assert "% <<slot " in adopted["latex"]
+
+
+def test_converting_keeps_the_draft_so_a_bad_conversion_can_be_walked_away_from(app_client):
+    draft = app_client.post("/api/drafts", json={"name": "Legacy"}).json()
+
+    app_client.post(f"/api/drafts/{draft['id']}/adopt")
+
+    assert app_client.get(f"/api/drafts/{draft['id']}").status_code == 200
+
+
+def test_converting_a_draft_that_is_not_there_is_a_404(app_client):
+    assert app_client.post("/api/drafts/4040/adopt").status_code == 404
+
+
+def test_the_markers_a_conversion_writes_are_the_ones_configured(app_client):
+    app_client.put("/api/slot-markers", json={"open": r"\slotbegin{{name}}", "close": r"\slotend"})
+    entry = entry_with(app_client)
+    draft = app_client.post("/api/drafts", json={"name": "Legacy"}).json()
+    app_client.post(f"/api/drafts/{draft['id']}/placements", json={"entry_id": entry["id"]})
+
+    adopted = app_client.post(f"/api/drafts/{draft['id']}/adopt").json()
+
+    assert r"\slotbegin{" in adopted["latex"]
+    assert "% <<slot " not in adopted["latex"]
+
+
+def test_converting_points_the_draft_at_the_document_it_became(app_client):
+    """Without the link the draft is converted and the composer still finds no
+    document behind it, so it carries on editing the old body."""
+    draft = app_client.post("/api/drafts", json={"name": "Legacy"}).json()
+
+    adopted = app_client.post(f"/api/drafts/{draft['id']}/adopt").json()
+
+    assert app_client.get(f"/api/drafts/{draft['id']}").json()["resume_instance_id"] == adopted["id"]

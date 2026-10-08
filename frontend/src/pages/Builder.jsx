@@ -8,6 +8,7 @@ import DraftCanvas from '../components/DraftCanvas'
 import Dropdown from '../components/Dropdown'
 import PageLayout from '../components/PageLayout'
 import ProposalReview from '../components/ProposalReview'
+import SlotCanvas from '../components/SlotCanvas'
 import SurfaceToggle from '../components/SurfaceToggle'
 import SlidePanel from '../components/SlidePanel'
 import { ResizeHandle, usePanelSize } from '../components/Resizable'
@@ -142,6 +143,10 @@ export default function Builder() {
   const [renaming, setRenaming] = useState(false)
   const [rendering, setRendering] = useState(false)
   const [rendered, setRendered] = useState(null)
+  // The document's own regions, once it has any. A resume with slots is
+  // composed by rewriting its source; one without is still a draft.
+  const [docSlots, setDocSlots] = useState(null)
+  const [slotError, setSlotError] = useState(null)
   // Escape unmounts the field, and the blur it fires must not commit.
   const cancelRename = useRef(false)
   const [editingAd, setEditingAd] = useState(false)
@@ -226,6 +231,59 @@ export default function Builder() {
       cancelled = true
     }
   }, [])
+
+  // A draft that has been pushed may already be a slotted document, in which
+  // case the canvas works on the source rather than on the draft's body.
+  useEffect(() => {
+    const instanceId = draft?.resume_instance_id
+    if (!instanceId) {
+      setDocSlots(null)
+      setSlotError(null)
+      return undefined
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const rows = await api.resumeSlots(instanceId)
+        if (!cancelled) {
+          setDocSlots(rows.length ? rows : null)
+          setSlotError(null)
+        }
+      } catch (err) {
+        // A 409 means the markers do not pair up, which is a state the
+        // composer cannot act on and the user has to see rather than a
+        // document that silently looks like it has no slots.
+        if (!cancelled) {
+          setDocSlots(err.status === 409 ? [] : null)
+          setSlotError(err.status === 409 ? err.message : null)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [draft?.resume_instance_id, draft?.updated_at])
+
+  const refreshSlots = (rows) => {
+    setDocSlots(rows.length ? rows : null)
+    setSlotError(null)
+  }
+
+  const placeInSlot = (key, position) =>
+    act(async () => {
+      if (!draggingEntry) return
+      refreshSlots(
+        await api.placeInResumeSlot(draft.resume_instance_id, key, {
+          entry_id: draggingEntry.id,
+          position,
+        }),
+      )
+    })
+
+  const setSlotBlocks = (key, blocks) =>
+    act(async () => {
+      refreshSlots(await api.writeResumeSlot(draft.resume_instance_id, key, blocks))
+    })
 
   useEffect(() => {
     if (!draftId) {
@@ -637,6 +695,16 @@ export default function Builder() {
           // is anything to measure it against has nowhere to attach.
           <>
             <div className="min-w-0 flex-1">
+              {docSlots || slotError ? (
+                <SlotCanvas
+                  slots={docSlots || []}
+                  terms={terms}
+                  droppingEntry={draggingEntry}
+                  error={slotError}
+                  onPlace={placeInSlot}
+                  onBlocks={setSlotBlocks}
+                />
+              ) : (
               <DraftCanvas
                 body={draft.body}
                 bank={bank}
@@ -648,6 +716,7 @@ export default function Builder() {
                 onPlace={placeEntry}
                 onEditContact={() => setEditingContact(true)}
               />
+              )}
             </div>
 
             <ResizeHandle

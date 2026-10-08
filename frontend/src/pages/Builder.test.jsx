@@ -33,6 +33,9 @@ vi.mock('../api', async (importOriginal) => {
       importBank: vi.fn(),
       resumeContact: vi.fn(),
       resumeLibrary: vi.fn(),
+      resumeSlots: vi.fn(),
+      writeResumeSlot: vi.fn(),
+      placeInResumeSlot: vi.fn(),
       compileResumeInstance: vi.fn(),
       saveResumeContact: vi.fn(),
       jobPost: vi.fn(),
@@ -107,9 +110,11 @@ const CONTACT = { name: '', location: '', email: '', phone: '', links: [] }
 
 async function setup({
   drafts = [DRAFT], draft = DRAFT, bank = BANK, jobPost = JOB_POST, coverage, proposals = [],
-  contact = CONTACT, route = '/builder', library,
+  contact = CONTACT, route = '/builder', library, slots, slotsError,
 } = {}) {
   api.resumeContact.mockResolvedValue(contact)
+  if (slotsError) api.resumeSlots.mockRejectedValue(slotsError)
+  else api.resumeSlots.mockResolvedValue(slots ?? [])
   api.resumeLibrary.mockResolvedValue(
     library ?? drafts.map((row) => ({
       key: `draft:${row.id}`, draft_id: row.id, instance_id: null, name: row.name,
@@ -818,5 +823,72 @@ describe('Builder / one surface with two sides', () => {
     await userEvent.setup().click(switcher)
 
     expect(screen.getByRole('option', { name: 'Written by hand' })).toBeInTheDocument()
+  })
+})
+
+describe('Builder / composing a document that has slots', () => {
+  const PUSHED = { ...DRAFT, resume_instance_id: 12 }
+  const SLOTS = [
+    {
+      key: 'experience',
+      name: 'Experience',
+      blocks: [
+        {
+          kind: 'entry', raw: '', heading: 'resumeSubheading',
+          args: ['Fermilab', '2026', 'Intern', 'Batavia, IL'],
+          bullets: ['Calibrated the readout'],
+        },
+        { kind: 'opaque', raw: '\\hrule', heading: null, args: [], bullets: [] },
+      ],
+    },
+  ]
+
+  it('lays the document out by its own regions once it has them', async () => {
+    await setup({ draft: PUSHED, slots: SLOTS })
+
+    expect(await screen.findByText('Intern')).toBeInTheDocument()
+    expect(screen.getByText('Calibrated the readout')).toBeInTheDocument()
+  })
+
+  it('shows a block it could not read as the source it is, rather than hiding it', async () => {
+    await setup({ draft: PUSHED, slots: SLOTS })
+
+    expect(await screen.findByText(/your own latex/i)).toBeInTheDocument()
+    expect(screen.getByText('\\hrule')).toBeInTheDocument()
+  })
+
+  it('offers no way to rename or remove a region, because the document owns those', async () => {
+    await setup({ draft: PUSHED, slots: SLOTS })
+
+    await screen.findByText('Intern')
+    expect(screen.queryByRole('textbox', { name: /rename the/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /remove the .* section/i })).not.toBeInTheDocument()
+  })
+
+  it('writes a removal back into the document', async () => {
+    const user = userEvent.setup()
+    api.writeResumeSlot.mockResolvedValue(SLOTS)
+    await setup({ draft: PUSHED, slots: SLOTS })
+
+    await user.click(await screen.findByRole('button', { name: /remove intern/i }))
+
+    await waitFor(() => expect(api.writeResumeSlot).toHaveBeenCalledWith(12, 'experience', [
+      SLOTS[0].blocks[1],
+    ]))
+  })
+
+  it('says so when the markers do not pair up, rather than looking empty', async () => {
+    await setup({
+      draft: PUSHED,
+      slotsError: Object.assign(new Error('Slot x is never closed.'), { status: 409 }),
+    })
+
+    expect(await screen.findByText(/never closed/i)).toBeInTheDocument()
+  })
+
+  it('leaves a draft with no document on the old canvas', async () => {
+    await setup()
+
+    expect(await screen.findByRole('textbox', { name: /rename the experience section/i })).toBeInTheDocument()
   })
 })

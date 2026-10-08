@@ -847,6 +847,10 @@ class SlotBlock(BaseModel):
     heading: Optional[str] = None
     args: list[str] = Field(default_factory=list)
     bullets: list[str] = Field(default_factory=list)
+    # The same text as the page reads it. The canvas shows these; the raw
+    # pair above is what is written back.
+    args_text: list[str] = Field(default_factory=list)
+    bullets_text: list[str] = Field(default_factory=list)
 
 
 class SlotWrite(BaseModel):

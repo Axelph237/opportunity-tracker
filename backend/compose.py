@@ -88,3 +88,39 @@ def place_entry(
     at = len(blocks) if position is None else max(0, min(int(position), len(blocks)))
     blocks[at:at] = placed
     return _save(instance_id, slots.write(source, {slot.key: slots.render(blocks)}))
+
+
+# ------------------------------------------------- bringing drafts across
+
+def adopt_draft(draft_id: int) -> int:
+    """Turn a draft into a slotted document, and hand back the resume it is.
+
+    Drafts were the truth and LaTeX was generated from them. Converting one
+    means rendering it the way a push always did, except with slot markers
+    around each section's entries, so the composer can find the same
+    structure in the document afterwards.
+
+    The draft keeps its row. Nothing here deletes anything: a conversion that
+    turned out wrong should be something the user can walk away from.
+    """
+    import contact as contact_module
+    import drafts as drafts_module
+    from database import get_setting
+
+    draft = drafts_module.get_draft(draft_id)
+    source = resume_render.render_document(
+        get_setting("resume_template") or "",
+        draft["body"],
+        contact_module.get_contact(),
+        slots.markers(),
+    )
+
+    instance_id = draft.get("resume_instance_id")
+    if instance_id is None:
+        instance_id = resumes.create_instance(draft["name"], latex_source=source)["id"]
+        # Linked back, or the draft would be converted and the composer would
+        # still find no document behind it and carry on editing the old body.
+        drafts_module.attach_instance(draft_id, instance_id)
+    else:
+        resumes.update_instance(instance_id, {"latex": source})
+    return instance_id

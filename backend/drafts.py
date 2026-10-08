@@ -336,6 +336,15 @@ def _rename_instance_if_free(instance_id: int, name: str) -> None:
         pass
 
 
+def attach_instance(draft_id: int, instance_id: int) -> None:
+    """Point a draft at the document it became."""
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE resume_drafts SET resume_instance_id = ?, updated_at = ? WHERE id = ?",
+            (instance_id, _now(), draft_id),
+        )
+
+
 def detach_draft(draft_id: int) -> dict[str, Any]:
     """Cut a draft loose from the resume it was pushed into.
 

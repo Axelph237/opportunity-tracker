@@ -154,20 +154,28 @@ def render_placement(placement: dict) -> str:
     return _BODIES[layout.bullet_style](placement, layout)
 
 
-def render_section(section: dict) -> str:
+def render_section(section: dict, markers: Optional[dict[str, str]] = None) -> str:
     """One `\\section` and its entries, or nothing at all when it holds none.
 
     An empty section is dropped rather than emitted: the wrapper is an
     `itemize`, and an empty one fails the compile that would have shown the
     user a resume with a stray blank heading.
+
+    With `markers`, the entries are wrapped in a slot so a composer can find
+    them again. The markers go inside the list, never around it: an entry
+    prints an `\\item`, so a slot the list did not enclose would compile to
+    "Lonely \\item" the moment anything was placed in it.
     """
     rendered = []
     for placement in section.get("placements") or []:
         block = render_placement(placement)
         if block.strip():
             rendered.append(block)
-    if not rendered:
+    if not rendered and not markers:
         return ""
+    if markers:
+        key = section.get("key") or section.get("label") or "section"
+        rendered = [markers["open"].format(name=key), *rendered, markers["close"]]
     return "\n".join(
         [
             rf"\section{{{escape(section.get('label'))}}}",
@@ -212,13 +220,16 @@ def render_contact(contact: dict) -> str:
     return "\\begin{center}\n  " + joined + rows[-1] + "\n\\end{center}"
 
 
-def render_body(body: dict) -> str:
+def render_body(body: dict, markers: Optional[dict[str, str]] = None) -> str:
     """The whole draft as the LaTeX that replaces the template's body marker."""
-    sections = [render_section(section) for section in (body or {}).get("sections") or []]
+    sections = [render_section(s, markers) for s in (body or {}).get("sections") or []]
     return "\n\n".join(section for section in sections if section.strip())
 
 
-def render_document(template: str, body: dict, contact: Optional[dict] = None) -> str:
+def render_document(
+    template: str, body: dict, contact: Optional[dict] = None,
+    markers: Optional[dict[str, str]] = None,
+) -> str:
     """The draft placed inside the user's own preamble and heading block."""
     source = template or ""
     if BODY_MARKER not in source:
@@ -231,4 +242,4 @@ def render_document(template: str, body: dict, contact: Optional[dict] = None) -
     # The first marker is where the body belongs. Replacing all of them would
     # print the whole resume once per marker; the ones left behind are LaTeX
     # comments and cost the document nothing.
-    return source.replace(BODY_MARKER, render_body(body), 1)
+    return source.replace(BODY_MARKER, render_body(body, markers), 1)

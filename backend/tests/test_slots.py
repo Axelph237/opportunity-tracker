@@ -246,3 +246,19 @@ def test_a_document_carrying_markers_still_compiles_and_never_prints_them(db_pat
     text = "".join(page.extract_text() for page in pypdf.PdfReader(io.BytesIO(result.pdf_bytes)).pages)
     assert "Research Assistant at Fermilab" in text
     assert "slot" not in text.lower()
+
+
+def test_a_block_carries_the_text_as_the_page_reads_it(db_path):
+    """The canvas shows this pair. Showing the raw LaTeX would put `38\\%` and
+    `\\textbf{...}` in front of the user instead of their resume."""
+    block = slots.parse(
+        "\\resumeSubheading{UChicago PME}{Jun 2025}{Research Assistant}{Chicago, IL}\n"
+        "\\resumeItemListStart\n"
+        "  \\resumeItem{Cut epoch time 38\\% on a \\textbf{PyTorch} pipeline}\n"
+        "\\resumeItemListEnd"
+    )[0].as_dict()
+
+    assert block["bullets"][0] == "Cut epoch time 38\\% on a \\textbf{PyTorch} pipeline"
+    assert block["bullets_text"][0] == "Cut epoch time 38% on a PyTorch pipeline"
+    # The raw pair is what gets written back, so it must survive untouched.
+    assert block["args"][0] == "UChicago PME"

@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from database import get_setting, set_setting
+from latex import strip_latex
 
 SETTING_KEY = "slot_markers"
 
@@ -72,12 +73,21 @@ class Block:
     bullets: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
+        """Both forms of the text, deliberately.
+
+        `args` and `bullets` are the LaTeX, which is what gets written back
+        and must survive untouched. The `_text` pairs are the same thing as
+        the page reads it, because a canvas showing `38\\%` and `\\textbf{x}`
+        is showing the user the markup rather than their resume.
+        """
         return {
             "kind": self.kind,
             "raw": self.raw,
             "heading": self.heading,
             "args": list(self.args),
             "bullets": list(self.bullets),
+            "args_text": [strip_latex(arg) for arg in self.args],
+            "bullets_text": [strip_latex(text) for text in self.bullets],
         }
 
 
