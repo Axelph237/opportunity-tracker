@@ -75,10 +75,24 @@ def _json_value(value: Any, fallback: Any) -> Any:
     return parsed if isinstance(parsed, type(fallback)) else deepcopy(fallback)
 
 
+def _complete(body: Optional[dict]) -> dict:
+    """A body the rest of this module can trust, whatever shape it arrived in."""
+    body = body if isinstance(body, dict) else {}
+    body.setdefault("sections", [])
+    for section in body["sections"]:
+        # A section's label is renameable per job. Its key is what filing an
+        # entry matches on, so a renamed section still takes the next entry of
+        # its kind rather than a second section appearing beside it under the
+        # old name. A body stored before keys existed takes the label it was
+        # created under, which is what the key would have been.
+        if not section.get("key"):
+            section["key"] = section.get("label") or ""
+    return body
+
+
 def draft_dict(row: sqlite3.Row) -> dict[str, Any]:
     data = dict(row)
-    data["body"] = _json_value(data.get("body"), {"sections": []})
-    data["body"].setdefault("sections", [])
+    data["body"] = _complete(_json_value(data.get("body"), {"sections": []}))
     return data
 
 
@@ -132,6 +146,7 @@ def _ensure_refs(body: dict) -> dict:
     posted a body with a missing or repeated one would make those rows
     unaddressable, and a proposal would silently act on the wrong line.
     """
+    _complete(body)
     seen: set[str] = set()
 
     def fresh(node: dict) -> None:
@@ -183,11 +198,11 @@ def _snapshot(entry: dict) -> dict[str, Any]:
     }
 
 
-def _section_for(body: dict, label: str, layout: KindLayout) -> dict:
+def _section_for(body: dict, key: str, layout: KindLayout) -> dict:
     for section in _sections(body):
-        if section.get("label") == label:
+        if section.get("key") == key:
             return section
-    section = {"ref": _new_ref(), "label": label,
+    section = {"ref": _new_ref(), "key": key, "label": key,
                "bullet_style": layout.bullet_style, "placements": []}
     body.setdefault("sections", []).append(section)
     return section
@@ -273,8 +288,7 @@ def _mutate_body(conn: sqlite3.Connection, draft_id: int, change: Callable[[dict
     row = conn.execute("SELECT body FROM resume_drafts WHERE id = ?", (draft_id,)).fetchone()
     if row is None:
         raise DraftNotFound(f"Draft {draft_id} not found")
-    body = _json_value(row["body"], {"sections": []})
-    body.setdefault("sections", [])
+    body = _complete(_json_value(row["body"], {"sections": []}))
     change(body)
     conn.execute(
         "UPDATE resume_drafts SET body = ?, updated_at = ? WHERE id = ?",
@@ -324,8 +338,8 @@ def _bank_index(conn: sqlite3.Connection) -> dict[str, dict[int, dict[str, Any]]
 def _op_add_entry(body: dict, op: dict, index: dict) -> None:
     entry = index["entries"][op["entry_id"]]
     layout = bank.layout_for(entry.get("kind"))
-    label = (op.get("section") or "").strip() or layout.default_section
-    section = _section_for(body, label, layout)
+    key = (op.get("section") or "").strip() or layout.default_section
+    section = _section_for(body, key, layout)
     _insert(section.setdefault("placements", []), _snapshot(entry), op.get("position"))
 
 

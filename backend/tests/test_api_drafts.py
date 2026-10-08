@@ -171,6 +171,40 @@ def test_a_snapshot_records_where_each_bullet_came_from(app_client):
     assert bullet["source_text"] == "Ran the rig"
 
 
+def test_a_renamed_section_still_takes_the_next_entry_of_its_kind(app_client):
+    """Renaming Experience to suit the job is the documented reason sections
+    are renameable. Filing by label meant the next experience placed after a
+    rename opened a second section with the old name beside the renamed one."""
+    draft = make_draft(app_client)
+    first = make_entry(app_client, title="Lab assistant")
+    drafts.place_entry(draft["id"], first["id"])
+    section = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]["sections"][0]
+    resolve(app_client, make_proposal(draft["id"], [
+        {"op": "RenameSection", "section_id": section["ref"], "label": "Research Experience"},
+    ]))
+
+    drafts.place_entry(draft["id"], make_entry(app_client, title="Teaching assistant")["id"])
+
+    sections = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]["sections"]
+    assert [s["label"] for s in sections] == ["Research Experience"]
+    assert [p["title"] for p in sections[0]["placements"]] == ["Lab assistant", "Teaching assistant"]
+
+
+def test_a_section_the_client_sent_without_a_key_still_takes_its_entries(app_client):
+    """The canvas saves whole bodies, and a body composed before keys existed
+    carries none. Such a section is filed under the label it was created with
+    rather than being passed over for a fresh one."""
+    draft = make_draft(app_client)
+    app_client.patch(f"/api/drafts/{draft['id']}", json={"body": {"sections": [
+        {"ref": "s1", "label": "Experience", "placements": []},
+    ]}})
+
+    drafts.place_entry(draft["id"], make_entry(app_client)["id"])
+
+    sections = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]["sections"]
+    assert [len(s["placements"]) for s in sections] == [1]
+
+
 def test_placing_an_entry_into_a_section_that_does_not_exist_is_refused(app_client):
     draft = make_draft(app_client)
     entry = make_entry(app_client)

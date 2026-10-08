@@ -735,6 +735,10 @@ class DraftPlacement(BaseModel):
 
 class DraftSection(BaseModel):
     ref: str
+    # What this section is for, and what filing an entry matches on. Fixed at
+    # the label the section was created under, so renaming the section does
+    # not make the next entry of its kind open a second one beside it.
+    key: str = ""
     label: str                      # renameable per job, e.g. "Research and Project Experience"
     bullet_style: BulletStyle = "bullets"
     placements: list[DraftPlacement] = Field(default_factory=list)
@@ -798,7 +802,7 @@ class ProposalOp(BaseModel):
     rationale: Optional[str] = None
     entry_id: Optional[int] = None
     bullet_id: Optional[int] = None
-    section: Optional[str] = None
+    section: Optional[str] = None   # names a section by key, not by its label
     section_id: Optional[str] = None
     label: Optional[str] = None
     placement_id: Optional[str] = None
