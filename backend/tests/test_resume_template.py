@@ -13,6 +13,7 @@ conftest's autouse guards replace `latex.compile_pdf` and force
 
 from __future__ import annotations
 
+import io
 import re
 
 import pytest
@@ -112,3 +113,31 @@ def test_a_pushed_draft_compiles_through_the_seeded_template(app_client, monkeyp
     assert result.ok is True, result.log
     assert result.errors == [], result.errors
     assert result.pdf_bytes.startswith(b"%PDF")
+
+
+# Every character TeX reads as an instruction, in one line of prose.
+TEX_SPECIALS = r"Cut cost 38% & raised $1.2M in C++ #1 ~approx ^2 {braces} _under_"
+
+
+@pytest.mark.skipif(not ENGINE_AVAILABLE, reason="no TeX engine on this machine")
+def test_the_characters_tex_reads_as_instructions_print_as_themselves(app_client, monkeypatch):
+    """An escaping rule can produce valid TeX and still print the wrong thing.
+    A string assertion cannot tell `\\%` from a `%` that swallowed the rest of
+    the line; reading the text back out of the compiled page can."""
+    monkeypatch.setattr(latex, "latex_available", REAL_AVAILABLE)
+    pypdf = pytest.importorskip("pypdf")
+    draft_id = app_client.post("/api/drafts", json={"name": "Specials"}).json()["id"]
+    entry = app_client.post("/api/bank/entries", json={
+        "kind": "experience", "title": TEX_SPECIALS, "organization": TEX_SPECIALS,
+        "location": TEX_SPECIALS, "detail": TEX_SPECIALS,
+        "url": "https://x.example/a?b=1&c=2#d_e~f",
+        "bullets": [TEX_SPECIALS],
+    }).json()
+    app_client.post(f"/api/drafts/{draft_id}/placements", json={"entry_id": entry["id"]})
+
+    result = REAL_COMPILE(app_client.post(f"/api/drafts/{draft_id}/push").json()["latex"], timeout=180)
+
+    assert result.ok is True, result.log
+    page = pypdf.PdfReader(io.BytesIO(result.pdf_bytes)).pages[0].extract_text().replace("\n", "")
+    for printed in ("38%", "$1.2M", "C++", "#1", "{braces}", "_under_"):
+        assert printed in page, printed
