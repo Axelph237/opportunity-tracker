@@ -65,6 +65,7 @@ from models import (
     Opportunity,
     OpportunityDetail,
     OpportunityUpdate,
+    PlaceEntry,
     ProposalResolve,
     ResumeDraft,
     ResumeDraftCreate,
@@ -1887,11 +1888,14 @@ def list_drafts() -> list[ResumeDraft]:
 
 @app.post("/api/drafts", response_model=ResumeDraft, status_code=201)
 def create_draft(payload: ResumeDraftCreate) -> ResumeDraft:
-    draft = drafts_module.create_draft(
-        payload.name,
-        job_post_id=payload.job_post_id,
-        resume_instance_id=payload.resume_instance_id,
-    )
+    try:
+        draft = drafts_module.create_draft(
+            payload.name,
+            job_post_id=payload.job_post_id,
+            resume_instance_id=payload.resume_instance_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ResumeDraft(**draft)
 
 
@@ -1922,6 +1926,20 @@ def delete_draft(draft_id: int) -> None:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.post("/api/drafts/{draft_id}/placements", response_model=ResumeDraft, status_code=201)
+def place_draft_entry(draft_id: int, payload: PlaceEntry) -> ResumeDraft:
+    """Snapshot a bank record onto the draft, which is what a drag from the rail does."""
+    try:
+        draft = drafts_module.place_entry(
+            draft_id, payload.entry_id, section_ref=payload.section_ref
+        )
+    except (drafts_module.DraftNotFound, bank_module.BankNotFound) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ResumeDraft(**draft)
+
+
 @app.get("/api/drafts/{draft_id}/coverage", response_model=CoverageReport)
 def get_draft_coverage(draft_id: int) -> CoverageReport:
     try:
@@ -1946,7 +1964,7 @@ def push_draft(draft_id: int, force: bool = False) -> DraftPushResult:
     """Write the rendered document into the linked resume variant.
 
     A variant hand-edited since the last push is a 409 carrying both texts, so
-    the editor can show the diff rather than a dialog the user has to guess at.
+    the page can show the user that edit rather than describe it.
     `force=true` overwrites it anyway.
     """
     try:

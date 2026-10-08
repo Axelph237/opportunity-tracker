@@ -85,7 +85,7 @@ function ImportPreview({ preview, busy, onConfirm, onCancel }) {
                 {entry.bullets?.length ? (
                   <ul className="mt-1 list-disc space-y-0.5 pl-5 text-on-surface-variant marker:text-primary">
                     {entry.bullets.map((bullet, position) => (
-                      <li key={position}>{bullet.text}</li>
+                      <li key={position}>{bullet}</li>
                     ))}
                   </ul>
                 ) : null}
@@ -127,6 +127,7 @@ export default function Builder() {
   const [jobPost, setJobPost] = useState(null)
   const [coverage, setCoverage] = useState([])
   const [proposal, setProposal] = useState(null)
+  const [standing, setStanding] = useState(null)
   const [importPreview, setImportPreview] = useState(null)
   const [editing, setEditing] = useState(null)
   const [draggingEntry, setDraggingEntry] = useState(null)
@@ -150,6 +151,17 @@ export default function Builder() {
 
   const reloadBank = useCallback(async () => setBank(await api.bankEntries()), [])
 
+  /**
+   * Anything waiting on a decision, drift included.
+   *
+   * This GET has a side effect: reading the list is what runs the drift
+   * check, so a reworded bank record surfaces only once somebody asks.
+   */
+  const refreshProposals = useCallback(async (id) => {
+    const pending = (await api.draftProposals(id)).filter((row) => row.status === 'pending')
+    setStanding(pending[0] ?? null)
+  }, [])
+
   const refreshCoverage = useCallback(async (id, hasJobPost) => {
     // Nothing to measure against until an ad is attached, and asking anyway
     // would put a permanent error on a draft that is simply not started yet.
@@ -160,7 +172,7 @@ export default function Builder() {
     setCoverageLoading(true)
     try {
       const report = await api.draftCoverage(id)
-      setCoverage(report?.coverage || [])
+      setCoverage(report?.keywords || [])
       setError(null)
     } catch (err) {
       setError(err.message)
@@ -194,6 +206,7 @@ export default function Builder() {
       setDraft(null)
       setJobPost(null)
       setCoverage([])
+      setStanding(null)
       return undefined
     }
     let cancelled = false
@@ -205,7 +218,10 @@ export default function Builder() {
         setJobPost(detail.job_post_id ? await api.jobPost(detail.job_post_id) : null)
         if (cancelled) return
         setError(null)
-        await refreshCoverage(detail.id, Boolean(detail.job_post_id))
+        await Promise.all([
+          refreshCoverage(detail.id, Boolean(detail.job_post_id)),
+          refreshProposals(detail.id),
+        ])
       } catch (err) {
         if (!cancelled) setError(err.message)
       }
@@ -213,7 +229,7 @@ export default function Builder() {
     return () => {
       cancelled = true
     }
-  }, [draftId, refreshCoverage])
+  }, [draftId, refreshCoverage, refreshProposals])
 
   const act = async (fn) => {
     setBusy(true)
@@ -243,6 +259,12 @@ export default function Builder() {
     },
     [draft, refreshCoverage],
   )
+
+  const placeEntry = (entryId, sectionRef) =>
+    act(async () => {
+      setDraft(await api.placeDraftEntry(draft.id, { entry_id: entryId, section_ref: sectionRef }))
+      await refreshCoverage(draft.id, Boolean(draft.job_post_id))
+    })
 
   const createDraft = () =>
     act(async () => {
@@ -286,15 +308,18 @@ export default function Builder() {
     }
   }
 
-  const resolveProposal = (accepted) =>
+  const resolveProposal = (operations) =>
     act(async () => {
-      const updated = await api.resolveProposal(proposal.id, {
-        status: accepted ? 'applied' : 'dismissed',
-        accepted: accepted || [],
-      })
+      const updated = await api.resolveProposal(
+        proposal.id,
+        operations ? { action: 'apply', operations } : { action: 'dismiss' },
+      )
       if (updated?.id) setDraft(updated)
       setProposal(null)
-      await refreshCoverage(draft.id, Boolean(draft.job_post_id))
+      await Promise.all([
+        refreshCoverage(draft.id, Boolean(draft.job_post_id)),
+        refreshProposals(draft.id),
+      ])
     })
 
   const runImport = async () => {
@@ -311,13 +336,7 @@ export default function Builder() {
 
   const confirmImport = (entries) =>
     act(async () => {
-      for (const entry of entries) {
-        const { bullets, ...fields } = entry
-        const created = await api.createBankEntry(fields)
-        for (const bullet of bullets || []) {
-          await api.createBankBullet(created.id, { text: bullet.text })
-        }
-      }
+      for (const entry of entries) await api.createBankEntry(entry)
       await reloadBank()
       setImportPreview(null)
     })
@@ -331,6 +350,8 @@ export default function Builder() {
       await syncBullets(saved.id, existing?.bullets || [], bullets)
       await reloadBank()
       setEditing(null)
+      // Rewording a record here is what puts a draft out of date with it.
+      if (draft) await refreshProposals(draft.id)
     })
 
   const deleteEntry = async () => {
@@ -353,21 +374,39 @@ export default function Builder() {
     })
   }
 
+  const remember = (result) =>
+    setDraft((current) => ({
+      ...current,
+      pushed_at: result?.pushed_at ?? current.pushed_at,
+      resume_instance_id: result?.resume_instance_id ?? current.resume_instance_id,
+    }))
+
   const push = () =>
     act(async () => {
-      const result = await api.pushDraft(draft.id)
-      if (!result?.diverged) {
-        setDraft((current) => ({ ...current, pushed_at: result?.pushed_at ?? current.pushed_at }))
+      let edited = null
+      try {
+        remember(await api.pushDraft(draft.id))
         return
+      } catch (err) {
+        if (err.status !== 409) throw err
+        edited = err.detail?.current_latex ?? ''
       }
-      // The LaTeX editor is still the escape hatch, so a hand-edit there must
-      // not be overwritten without being shown first.
+      // The LaTeX editor is still the escape hatch, so a hand-edit there is
+      // shown before it is replaced, rather than described and guessed at.
       const confirmed = await confirm({
         title: 'That resume was edited by hand',
-        body: 'The LaTeX has changed since this draft last wrote it. Pushing again replaces the whole document with what is on the canvas.',
+        body: (
+          <>
+            Pushing again replaces the whole document with what is on the canvas. This is what
+            is in that resume now:
+            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded border border-outline-variant bg-surface p-2 font-code text-data">
+              {edited}
+            </pre>
+          </>
+        ),
         confirmLabel: 'Replace it',
       })
-      if (confirmed) await api.pushDraft(draft.id, true)
+      if (confirmed) remember(await api.pushDraft(draft.id, true))
     })
 
   const terms = coverage.map((item) => item.term)
@@ -385,6 +424,17 @@ export default function Builder() {
         <PlusIcon />
         New
       </button>
+      {standing ? (
+        <button
+          type="button"
+          className="btn"
+          onClick={() => setProposal(standing)}
+          title={standing.summary || 'Changes waiting on your decision'}
+        >
+          Review {standing.operations.length} change
+          {standing.operations.length === 1 ? '' : 's'}
+        </button>
+      ) : null}
       {draft ? (
         <button
           type="button"
@@ -467,6 +517,7 @@ export default function Builder() {
                 droppingEntry={draggingEntry}
                 focusedPlacement={focusedPlacement}
                 onChange={commit}
+                onPlace={placeEntry}
               />
             </div>
 

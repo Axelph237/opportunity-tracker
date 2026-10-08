@@ -24,9 +24,6 @@ const KIND_HEADING = {
   sync: 'Your bank has moved on since this draft',
 }
 
-/** Operations carry their own id; an index is the fallback for one that does not. */
-const idOf = (op, index) => op.id ?? index
-
 function lookups(body, bank) {
   const sections = new Map()
   const placements = new Map()
@@ -107,15 +104,17 @@ export default function ProposalReview({ proposal, body, bank, busy, onApply, on
   const [rejected, setRejected] = useState(() => new Set())
   const at = lookups(body, bank)
 
-  const accepted = operations
-    .map((op, index) => idOf(op, index))
-    .filter((id) => !rejected.has(id))
+  const kept = operations.filter((_op, index) => !rejected.has(index))
 
-  const toggle = (id) =>
+  // An operation has no id. The server matches a submitted one against what
+  // it offered, field for field, so the whole op has to travel back.
+  const reviewed = () => operations.map((op, index) => ({ ...op, accepted: !rejected.has(index) }))
+
+  const toggle = (index) =>
     setRejected((current) => {
       const next = new Set(current)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      if (next.has(index)) next.delete(index)
+      else next.add(index)
       return next
     })
 
@@ -145,29 +144,26 @@ export default function ProposalReview({ proposal, body, bank, busy, onApply, on
       </p>
 
       <ul className="space-y-2">
-        {operations.map((op, index) => {
-          const id = idOf(op, index)
-          return (
-            <Operation
-              key={id}
-              op={op}
-              index={index}
-              at={at}
-              checked={!rejected.has(id)}
-              onToggle={() => toggle(id)}
-            />
-          )
-        })}
+        {operations.map((op, index) => (
+          <Operation
+            key={index}
+            op={op}
+            index={index}
+            at={at}
+            checked={!rejected.has(index)}
+            onToggle={() => toggle(index)}
+          />
+        ))}
       </ul>
 
       <div className="flex flex-wrap items-center gap-3 border-t border-outline-variant pt-4">
         <button
           type="button"
           className="btn btn-primary"
-          disabled={busy || !accepted.length}
-          onClick={() => onApply(accepted)}
+          disabled={busy || !kept.length}
+          onClick={() => onApply(reviewed())}
         >
-          {busy ? 'Applying…' : `Apply ${accepted.length} of ${operations.length}`}
+          {busy ? 'Applying…' : `Apply ${kept.length} of ${operations.length}`}
         </button>
         <button type="button" className="btn" onClick={onDismiss} disabled={busy}>
           Discard all

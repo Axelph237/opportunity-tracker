@@ -323,9 +323,24 @@ RESUME_TEMPLATE = r"""\documentclass[letterpaper,11pt]{article}
 \titlespacing{\section}{0pt}{12pt}{6pt}
 \setlist[itemize]{leftmargin=*, topsep=2pt, itemsep=1pt}
 
-\newcommand{\entry}[4]{%
+% Every \resume* macro the renderer emits, named after the sb2nov template the
+% project's own resume.tex already uses. A template missing one of them is a
+% template no draft can compile through; the two sides are held together by
+% backend/tests/test_resume_template.py.
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0pt, label={}, topsep=4pt, itemsep=4pt]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}}
+
+\newcommand{\resumeItem}[1]{\item\small{#1}}
+\newcommand{\resumeSubheading}[4]{%
+  \item
   \textbf{#1} \hfill #2 \\
-  \textit{#3} \hfill \textit{#4}%
+  \textit{\small #3} \hfill \textit{\small #4}%
+}
+\newcommand{\resumeProjectHeading}[2]{%
+  \item
+  \small #1 \hfill #2%
 }
 
 \begin{document}

@@ -21,16 +21,23 @@ async function send(path, options = {}) {
   }
 
   if (!response.ok) {
-    let detail = `${response.status} ${response.statusText}`
+    let message = `${response.status} ${response.statusText}`
+    let detail = null
     try {
       const body = await response.json()
-      if (body?.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail)
+      if (body?.detail) {
+        detail = body.detail
+        message = typeof detail === 'string' ? detail : JSON.stringify(detail)
+      }
     } catch {
       /* response had no JSON body */
     }
     // 502/503/504 from the dev proxy mean the API never answered at all.
-    if (response.status >= 502 && response.status <= 504) throw new ApiOfflineError(detail)
-    throw new Error(detail)
+    if (response.status >= 502 && response.status <= 504) throw new ApiOfflineError(message)
+    // Some answers are not failures to report. A caller needs the status to
+    // tell a push refused over a hand edit from a push that went wrong, and
+    // the detail to show the user the edit it refused over.
+    throw Object.assign(new Error(message), { status: response.status, detail })
   }
 
   return response
@@ -178,6 +185,7 @@ export const api = {
   draft: (id) => get(`/drafts/${id}`),
   updateDraft: (id, body) => patch(`/drafts/${id}`, body),
   deleteDraft: (id) => del(`/drafts/${id}`),
+  placeDraftEntry: (id, body) => post(`/drafts/${id}/placements`, body),
   draftCoverage: (id) => get(`/drafts/${id}/coverage`),
   draftLatex: (id) => get(`/drafts/${id}/latex`),
   pushDraft: (id, force = false) => post(`/drafts/${id}/push${query({ force })}`),

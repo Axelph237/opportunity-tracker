@@ -21,6 +21,7 @@ const BODY = {
 
 const BANK = [{ id: 7, title: 'Delphi' }]
 
+// Operations as `ProposalOp` declares them, which has no id field.
 const PROPOSAL = {
   id: 3,
   kind: 'tailor',
@@ -28,15 +29,14 @@ const PROPOSAL = {
   summary: 'Leads with the simulation work the ad asks for.',
   operations: [
     {
-      id: 'o1',
       op: 'RewriteBullet',
       placement_id: 'p1',
       bullet_ref: 'b1',
       text: 'Rebuilt the DAQ pipeline, cutting calibration time in half',
       rationale: 'The ad asks for a strong verb and a number.',
     },
-    { id: 'o2', op: 'AddEntry', entry_id: 7, section: 'Projects', position: 0 },
-    { id: 'o3', op: 'RenameSection', section_id: 's1', label: 'Research Experience' },
+    { op: 'AddEntry', entry_id: 7, section: 'Projects', position: 0 },
+    { op: 'RenameSection', section_id: 's1', label: 'Research Experience' },
   ],
 }
 
@@ -84,30 +84,45 @@ describe('ProposalReview / what it lists', () => {
   })
 
   it('still reads sensibly when an operation names a record that has since gone', () => {
-    setup({ proposal: { ...PROPOSAL, operations: [{ id: 'o9', op: 'DropEntry', placement_id: 'gone' }] } })
+    setup({ proposal: { ...PROPOSAL, operations: [{ op: 'DropEntry', placement_id: 'gone' }] } })
     expect(screen.getByText(/a record no longer there/i)).toBeInTheDocument()
   })
 
   it('does not blow up on an operation it has no wording for', () => {
-    setup({ proposal: { ...PROPOSAL, operations: [{ id: 'o9', op: 'Teleport' }] } })
+    setup({ proposal: { ...PROPOSAL, operations: [{ op: 'Teleport' }] } })
     expect(screen.getByText('Teleport')).toBeInTheDocument()
   })
 })
 
 describe('ProposalReview / applying', () => {
-  it('starts with everything accepted, since that is the common case', async () => {
+  const accepts = (call) => call.map((op) => [op.op, op.accepted])
+
+  it('hands back every operation that was offered, not just the ticked ones', async () => {
     const user = userEvent.setup()
     const { onApply } = setup()
     await user.click(screen.getByRole('button', { name: 'Apply 3 of 3' }))
-    expect(onApply).toHaveBeenCalledWith(['o1', 'o2', 'o3'])
+    expect(accepts(onApply.mock.calls[0][0])).toEqual([
+      ['RewriteBullet', true], ['AddEntry', true], ['RenameSection', true],
+    ])
   })
 
-  it('applies only the operations still ticked', async () => {
+  it('marks the ones the user unticked as not accepted', async () => {
     const user = userEvent.setup()
     const { onApply } = setup()
     await user.click(screen.getAllByRole('checkbox')[1])
     await user.click(screen.getByRole('button', { name: 'Apply 2 of 3' }))
-    expect(onApply).toHaveBeenCalledWith(['o1', 'o3'])
+    expect(accepts(onApply.mock.calls[0][0])).toEqual([
+      ['RewriteBullet', true], ['AddEntry', false], ['RenameSection', true],
+    ])
+  })
+
+  it('sends each operation back with the fields it was offered with', async () => {
+    const user = userEvent.setup()
+    const { onApply } = setup()
+    await user.click(screen.getByRole('button', { name: 'Apply 3 of 3' }))
+    expect(onApply.mock.calls[0][0][1]).toEqual({
+      op: 'AddEntry', entry_id: 7, section: 'Projects', position: 0, accepted: true,
+    })
   })
 
   it('puts one back when it is ticked again', async () => {
@@ -117,7 +132,9 @@ describe('ProposalReview / applying', () => {
     await user.click(box)
     await user.click(box)
     await user.click(screen.getByRole('button', { name: 'Apply 3 of 3' }))
-    expect(onApply).toHaveBeenCalledWith(['o1', 'o2', 'o3'])
+    expect(accepts(onApply.mock.calls[0][0])).toEqual([
+      ['RewriteBullet', true], ['AddEntry', true], ['RenameSection', true],
+    ])
   })
 
   it('has nothing to apply once every box is cleared', async () => {
@@ -126,15 +143,6 @@ describe('ProposalReview / applying', () => {
     for (const box of screen.getAllByRole('checkbox')) await user.click(box)
     expect(screen.getByRole('button', { name: /apply 0 of 3/i })).toBeDisabled()
     expect(onApply).not.toHaveBeenCalled()
-  })
-
-  it('falls back to the position when an operation carries no id of its own', async () => {
-    const user = userEvent.setup()
-    const { onApply } = setup({
-      proposal: { ...PROPOSAL, operations: [{ op: 'DropEntry', placement_id: 'p1' }] },
-    })
-    await user.click(screen.getByRole('button', { name: /apply 1 of 1/i }))
-    expect(onApply).toHaveBeenCalledWith([0])
   })
 
   it('discards the whole proposal without applying any of it', async () => {

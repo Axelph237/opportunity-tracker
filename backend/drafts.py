@@ -18,6 +18,7 @@ prompt.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -25,10 +26,14 @@ from typing import Any, Callable, Iterator, Optional
 from uuid import uuid4
 
 import bank
+import jobposts
+import keywords
 import resume_render
 import resumes
 from bank import KindLayout
 from database import get_db, get_setting
+
+logger = logging.getLogger(__name__)
 
 MAX_NAME_LENGTH = 120
 
@@ -37,11 +42,20 @@ class DraftNotFound(LookupError):
     """Raised when a draft or proposal id does not exist."""
 
 
+class CorruptDraft(RuntimeError):
+    """Raised when a stored JSON column is not the shape the column promises.
+
+    Reading it as an empty value instead is how a corrupt row becomes a push
+    that writes an empty resume over the user's variant and reports success,
+    and how a proposal's record of what it offered becomes an empty list.
+    """
+
+
 class PushConflict(RuntimeError):
     """Raised when the linked resume no longer matches what we last wrote to it.
 
-    Carries both texts so the caller can show the user a real diff rather than
-    a dialog asking them to guess what changed.
+    Carries both texts so the caller can show the user the work it is refusing
+    over, rather than a dialog asking them to guess what changed.
     """
 
     def __init__(self, draft_id: int, instance_id: Optional[int],
@@ -70,15 +84,30 @@ def _json_value(value: Any, fallback: Any) -> Any:
         return deepcopy(fallback)
     try:
         parsed = json.loads(value)
-    except (TypeError, ValueError):
-        return deepcopy(fallback)
-    return parsed if isinstance(parsed, type(fallback)) else deepcopy(fallback)
+    except (TypeError, ValueError) as exc:
+        raise CorruptDraft(f"Stored JSON will not parse: {exc}") from exc
+    if not isinstance(parsed, type(fallback)):
+        raise CorruptDraft(
+            f"Stored JSON is a {type(parsed).__name__}, not a {type(fallback).__name__}."
+        )
+    return parsed
+
+
+def _complete(body: Optional[dict]) -> dict:
+    """A body the rest of this module can trust, whatever shape it arrived in."""
+    body = body if isinstance(body, dict) else {}
+    body.setdefault("sections", [])
+    for section in body["sections"]:
+        # A body stored or posted without a key takes the label it was created
+        # under, which is what its key would have been.
+        if not section.get("key"):
+            section["key"] = section.get("label") or ""
+    return body
 
 
 def draft_dict(row: sqlite3.Row) -> dict[str, Any]:
     data = dict(row)
-    data["body"] = _json_value(data.get("body"), {"sections": []})
-    data["body"].setdefault("sections", [])
+    data["body"] = _complete(_json_value(data.get("body"), {"sections": []}))
     return data
 
 
@@ -132,6 +161,7 @@ def _ensure_refs(body: dict) -> dict:
     posted a body with a missing or repeated one would make those rows
     unaddressable, and a proposal would silently act on the wrong line.
     """
+    body = _complete(body)
     seen: set[str] = set()
 
     def fresh(node: dict) -> None:
@@ -183,11 +213,11 @@ def _snapshot(entry: dict) -> dict[str, Any]:
     }
 
 
-def _section_for(body: dict, label: str, layout: KindLayout) -> dict:
+def _section_for(body: dict, key: str, layout: KindLayout) -> dict:
     for section in _sections(body):
-        if section.get("label") == label:
+        if section.get("key") == key:
             return section
-    section = {"ref": _new_ref(), "label": label,
+    section = {"ref": _new_ref(), "key": key, "label": key,
                "bullet_style": layout.bullet_style, "placements": []}
     body.setdefault("sections", []).append(section)
     return section
@@ -195,12 +225,46 @@ def _section_for(body: dict, label: str, layout: KindLayout) -> dict:
 
 # ----------------------------------------------------------------- draft CRUD
 
+# The links a draft carries, and what to call the row on the other end. SQLite
+# enforces these too, but its IntegrityError names no field and reaches the
+# client as a 500, so the check lives here where the answer can say which link
+# is wrong.
+_LINKS = {
+    "job_post_id": ("job_posts", "job post"),
+    "resume_instance_id": ("resume_instances", "resume"),
+}
+
+
+def _check_links(conn: sqlite3.Connection, values: dict[str, Any]) -> None:
+    for field, (table, noun) in _LINKS.items():
+        target = values.get(field)
+        if target is None:
+            continue
+        if conn.execute(f"SELECT 1 FROM {table} WHERE id = ?", (target,)).fetchone() is None:
+            raise ValueError(f"There is no {noun} {target} to attach this draft to.")
+
+
 def list_drafts() -> list[dict[str, Any]]:
+    """Every draft, as the picker that chooses between them needs it.
+
+    A row whose body will not parse is listed with an empty one rather than
+    taking the whole collection down. Nothing here can overwrite anything:
+    every path that writes a draft reads its body again, strictly, under its
+    own lock. Losing the list would leave the healthy drafts intact and
+    unreachable, because reaching them goes through it.
+    """
     with get_db() as conn:
         rows = conn.execute(
             "SELECT * FROM resume_drafts ORDER BY updated_at DESC, id DESC"
         ).fetchall()
-    return [draft_dict(row) for row in rows]
+    listed = []
+    for row in rows:
+        try:
+            listed.append(draft_dict(row))
+        except CorruptDraft as exc:
+            logger.warning("Draft %s has an unreadable body: %s", row["id"], exc)
+            listed.append({**dict(row), "body": {"sections": []}})
+    return listed
 
 
 def get_draft(draft_id: int) -> dict[str, Any]:
@@ -219,6 +283,8 @@ def create_draft(
 ) -> dict[str, Any]:
     clean = (name or "").strip()[:MAX_NAME_LENGTH] or "New draft"
     with get_db() as conn:
+        _check_links(conn, {"job_post_id": job_post_id,
+                            "resume_instance_id": resume_instance_id})
         cursor = conn.execute(
             """INSERT INTO resume_drafts (name, job_post_id, resume_instance_id, body, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?)""",
@@ -245,6 +311,7 @@ def update_draft(draft_id: int, values: dict[str, Any]) -> dict[str, Any]:
     with get_db() as conn:
         if conn.execute("SELECT 1 FROM resume_drafts WHERE id = ?", (draft_id,)).fetchone() is None:
             raise DraftNotFound(f"Draft {draft_id} not found")
+        _check_links(conn, changes)
         assignments = ", ".join(f"{column} = ?" for column in changes)
         conn.execute(
             f"UPDATE resume_drafts SET {assignments}, updated_at = ? WHERE id = ?",
@@ -260,29 +327,45 @@ def delete_draft(draft_id: int) -> None:
             raise DraftNotFound(f"Draft {draft_id} not found")
 
 
-def _write_body(draft_id: int, body: dict) -> dict[str, Any]:
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE resume_drafts SET body = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(body), _now(), draft_id),
-        )
-    return get_draft(draft_id)
+def _mutate_body(conn: sqlite3.Connection, draft_id: int, change: Callable[[dict], None]) -> None:
+    """Read, change and store a draft body without leaving the transaction.
+
+    The read has to happen under the caller's write lock. Reading the body at
+    the start of a request and storing it at the end let an edit that landed
+    in between disappear, with nothing anywhere saying so. The change runs
+    against the in-memory body and is stored once, so an operation that fails
+    half way through rolls the whole request back rather than leaving a draft
+    partly rewritten.
+    """
+    row = conn.execute("SELECT body FROM resume_drafts WHERE id = ?", (draft_id,)).fetchone()
+    if row is None:
+        raise DraftNotFound(f"Draft {draft_id} not found")
+    body = _complete(_json_value(row["body"], {"sections": []}))
+    change(body)
+    conn.execute(
+        "UPDATE resume_drafts SET body = ?, updated_at = ? WHERE id = ?",
+        (json.dumps(body), _now(), draft_id),
+    )
 
 
 def place_entry(draft_id: int, entry_id: int, *, section_ref: Optional[str] = None) -> dict[str, Any]:
     """Snapshot a bank record into a draft."""
-    # Both open their own connections, so they resolve before the write below.
-    draft = get_draft(draft_id)
+    # `bank.get_entry` opens its own connection, so it resolves before the
+    # write below opens one.
     entry = bank.get_entry(entry_id)
-
-    body = draft["body"]
     layout = bank.layout_for(entry.get("kind"))
-    section = (
-        _locate_section(body, section_ref) if section_ref
-        else _section_for(body, layout.default_section, layout)
-    )
-    section.setdefault("placements", []).append(_snapshot(entry))
-    return _write_body(draft_id, body)
+    snapshot = _snapshot(entry)
+
+    def place(body: dict) -> None:
+        section = (
+            _locate_section(body, section_ref) if section_ref
+            else _section_for(body, layout.default_section, layout)
+        )
+        section.setdefault("placements", []).append(snapshot)
+
+    with get_db() as conn:
+        _mutate_body(conn, draft_id, place)
+    return get_draft(draft_id)
 
 
 # ------------------------------------------------------------ the op algebra
@@ -308,8 +391,8 @@ def _bank_index(conn: sqlite3.Connection) -> dict[str, dict[int, dict[str, Any]]
 def _op_add_entry(body: dict, op: dict, index: dict) -> None:
     entry = index["entries"][op["entry_id"]]
     layout = bank.layout_for(entry.get("kind"))
-    label = (op.get("section") or "").strip() or layout.default_section
-    section = _section_for(body, label, layout)
+    key = (op.get("section") or "").strip() or layout.default_section
+    section = _section_for(body, key, layout)
     _insert(section.setdefault("placements", []), _snapshot(entry), op.get("position"))
 
 
@@ -333,8 +416,18 @@ def _op_rename_section(body: dict, op: dict, _index: dict) -> None:
 
 def _op_add_bullet(body: dict, op: dict, index: dict) -> None:
     _, placement = _locate_placement(body, op.get("placement_id"))
-    snapshot = _snapshot_bullet(index["bullets"][op["bullet_id"]])
-    _insert(placement.setdefault("bullets", []), snapshot, op.get("position"))
+    source = index["bullets"][op["bullet_id"]]
+    # Naming an id the bank holds is not enough on its own. Hanging one
+    # record's achievement under another claims the second did the first's
+    # work, which is the thing the closed algebra exists to prevent, and the
+    # snapshot anchors to the foreign bullet, so editing that bullet in the
+    # bank writes the misattribution back into the draft.
+    if source["entry_id"] != placement.get("entry_id"):
+        raise ValueError(
+            f"Bullet {source['id']} belongs to entry {source['entry_id']}, "
+            f"not to the record placed at {op.get('placement_id')!r}."
+        )
+    _insert(placement.setdefault("bullets", []), _snapshot_bullet(source), op.get("position"))
 
 
 def _op_drop_bullet(body: dict, op: dict, _index: dict) -> None:
@@ -356,12 +449,13 @@ def _op_rewrite_bullet(body: dict, op: dict, index: dict) -> None:
     if not text:
         raise ValueError("A rewritten bullet needs some text.")
     bullet["text"] = text
-    # Re-anchor to whatever the bank says now. The user has just reviewed this
-    # line against the current record, so what counted as drift a moment ago
-    # does not count as drift after they accepted it.
     source = index["bullets"].get(bullet.get("source_bullet_id"))
-    if source is not None:
-        bullet["source_text"] = source["text"]
+    # Only a rewrite that lands on the bank's own current wording answers the
+    # drift, which is what accepting a sync offer does. A tailoring pass
+    # writes something else and has never shown the user what the bank now
+    # says, so re-anchoring there would withdraw a decision they were owed.
+    if source is not None and source["text"].strip() == text:
+        bullet["source_text"] = text
 
 
 OPERATIONS: dict[str, Callable[[dict, dict, dict], None]] = {
@@ -419,7 +513,57 @@ def list_proposals(draft_id: int) -> list[dict[str, Any]]:
         rows = conn.execute(
             "SELECT * FROM draft_proposals WHERE draft_id = ? ORDER BY id DESC", (draft_id,)
         ).fetchall()
-    return [proposal_dict(row) for row in rows]
+    listed = []
+    for row in rows:
+        try:
+            listed.append(proposal_dict(row))
+        except CorruptDraft as exc:
+            logger.warning("Proposal %s has unreadable operations: %s", row["id"], exc)
+            listed.append({**dict(row), "operations": []})
+    return listed
+
+
+_NOT_IDENTITY = ("accepted", "rationale")
+
+
+def _identity(op: dict) -> tuple:
+    """What has to match for a submitted operation to be one that was offered.
+
+    The accept state is the user's answer and the rationale is the author's
+    reasoning, so neither is part of which operation this is. A missing field
+    and a field set to None mean the same thing throughout the algebra, so an
+    absent value is left out rather than compared.
+    """
+    return tuple(sorted(
+        (field, value) for field, value in op.items()
+        if field not in _NOT_IDENTITY and value is not None
+    ))
+
+
+def _reviewed(stored: list[dict], submitted: Optional[list[dict]]) -> list[dict]:
+    """The operations that were offered, carrying the user's decision on each.
+
+    The proposal row is the record of what was offered. Storing the client's
+    list in its place let a resolve introduce operations nobody proposed and
+    rewrite the evidence of the offer in the same write, which makes the audit
+    trail a record of what was applied rather than of what was proposed.
+
+    What comes back is the offered list in the offered order, with the accept
+    states filled in. Paired by position rather than by content, because two
+    identical operations are indistinguishable by content: matching on it
+    would hand them both whichever answer arrived last.
+    """
+    if submitted is None:
+        return [dict(op, accepted=op.get("accepted", True)) for op in stored]
+    if len(submitted) != len(stored):
+        raise ValueError(
+            f"This proposal offered {len(stored)} operations and {len(submitted)} came back."
+        )
+    for offered, answer in zip(stored, submitted):
+        if _identity(offered) != _identity(answer):
+            raise ValueError(f"A {answer.get('op')} operation was not part of this proposal.")
+    return [dict(op, accepted=bool(answer.get("accepted", True)))
+            for op, answer in zip(stored, submitted)]
 
 
 def apply_proposal(proposal_id: int, operations: Optional[list[dict]] = None) -> dict[str, Any]:
@@ -434,19 +578,16 @@ def apply_proposal(proposal_id: int, operations: Optional[list[dict]] = None) ->
     if proposal["status"] != "pending":
         return draft
 
-    reviewed = proposal["operations"] if operations is None else operations
-    accepted = [op for op in reviewed if op.get("accepted", True)]
+    reviewed = _reviewed(proposal["operations"], operations)
+    accepted = [op for op in reviewed if op["accepted"]]
 
     with get_db() as conn:
         index = _bank_index(conn)
     _check_bank_refs(accepted, index)
 
-    # The whole run happens against the in-memory body and is stored once, at
-    # the end. An operation naming a ref an earlier one removed therefore
-    # raises with the stored draft untouched, rather than half-changed.
-    body = draft["body"]
-    for op in accepted:
-        OPERATIONS[op["op"]](body, op, index)
+    def run(body: dict) -> None:
+        for op in accepted:
+            OPERATIONS[op["op"]](body, op, index)
 
     with get_db() as conn:
         # Compare-and-set rather than a plain UPDATE: two calls racing on the
@@ -457,22 +598,29 @@ def apply_proposal(proposal_id: int, operations: Optional[list[dict]] = None) ->
             (_now(), json.dumps(reviewed), proposal_id),
         ).rowcount
         if claimed:
-            conn.execute(
-                "UPDATE resume_drafts SET body = ?, updated_at = ? WHERE id = ?",
-                (json.dumps(body), _now(), draft["id"]),
-            )
+            _mutate_body(conn, draft["id"], run)
     return get_draft(draft["id"])
 
 
 def dismiss_proposal(proposal_id: int) -> dict[str, Any]:
-    proposal = get_proposal(proposal_id)
+    """Drop a proposal without reading what it offered.
+
+    Deliberately not through `get_proposal`: dismissing needs nothing out of
+    the operations column, and a proposal whose column will not parse is the
+    one the user most needs to be able to get rid of.
+    """
     with get_db() as conn:
+        row = conn.execute(
+            "SELECT draft_id FROM draft_proposals WHERE id = ?", (proposal_id,)
+        ).fetchone()
+        if row is None:
+            raise DraftNotFound(f"Proposal {proposal_id} not found")
         conn.execute(
             """UPDATE draft_proposals SET status = 'dismissed', resolved_at = ?
                WHERE id = ? AND status = 'pending'""",
             (_now(), proposal_id),
         )
-    return get_draft(proposal["draft_id"])
+    return get_draft(row["draft_id"])
 
 
 def sync_proposal(draft_id: int) -> Optional[dict[str, Any]]:
@@ -483,8 +631,11 @@ def sync_proposal(draft_id: int) -> Optional[dict[str, Any]]:
     deliberately tailored has moved away from the bank on purpose and is not
     out of date.
 
-    Convergent. Running it again replaces the standing offer with the current
-    one, and withdraws it entirely once nothing differs.
+    Convergent. Running it again on an unchanged draft hands back the standing
+    offer unchanged, replaces it once the drift behind it moves, and withdraws
+    it entirely when nothing differs. The list endpoint runs this on every
+    read, so an offer re-minted each time would 404 the id the client is
+    holding the moment the list refreshed under it.
     """
     draft = get_draft(draft_id)
     with get_db() as conn:
@@ -507,6 +658,14 @@ def sync_proposal(draft_id: int) -> Optional[dict[str, Any]]:
             })
 
     with get_db() as conn:
+        standing = conn.execute(
+            """SELECT * FROM draft_proposals
+               WHERE draft_id = ? AND kind = 'sync' AND status = 'pending'
+               ORDER BY id DESC""",
+            (draft_id,),
+        ).fetchone()
+        if standing is not None and proposal_dict(standing)["operations"] == ops:
+            return proposal_dict(standing)
         conn.execute(
             "DELETE FROM draft_proposals WHERE draft_id = ? AND kind = 'sync' AND status = 'pending'",
             (draft_id,),
@@ -550,16 +709,15 @@ def coverage_report(draft_id: int) -> dict[str, Any]:
     post_id = draft.get("job_post_id")
     terms: list[dict] = []
     if post_id is not None:
-        with get_db() as conn:
-            row = conn.execute("SELECT keywords FROM job_posts WHERE id = ?", (post_id,)).fetchone()
-        terms = _json_value(row["keywords"] if row else None, [])
+        try:
+            terms = jobposts.get_post(post_id)["keywords"]
+        except jobposts.JobPostNotFound:
+            terms = []
 
     if not terms:
         return {"draft_id": draft_id, "job_post_id": post_id, "covered": 0, "total": 0, "keywords": []}
 
-    import keywords as keywords_module
-
-    results = keywords_module.coverage(terms, draft_segments(draft["body"]))
+    results = keywords.coverage(terms, draft_segments(draft["body"]))
     return {
         "draft_id": draft_id,
         "job_post_id": post_id,
@@ -597,13 +755,25 @@ def _result(draft: dict, latex: str, *, pushed: bool, diverged: bool) -> dict[st
     }
 
 
+def _would_overwrite(draft: dict, current: Optional[str], latex: str) -> bool:
+    """Whether writing `latex` would discard work nobody can get back.
+
+    Not simply "the variant changed". There is nothing to lose when there is
+    no variant behind the draft, and nothing to lose when the variant already
+    holds exactly what the push would write.
+    """
+    if current is None:
+        return False
+    return current != (draft.get("pushed_latex") or "") and current != latex
+
+
 def render_draft(draft_id: int) -> dict[str, Any]:
     """What a push would write, and whether it would overwrite a hand-edit."""
     draft = get_draft(draft_id)
     latex = _rendered(draft)
     current = _instance_latex(draft.get("resume_instance_id"))
-    diverged = current is not None and current != (draft.get("pushed_latex") or "")
-    return _result(draft, latex, pushed=False, diverged=diverged)
+    return _result(draft, latex, pushed=False,
+                   diverged=_would_overwrite(draft, current, latex))
 
 
 def push_draft(draft_id: int, *, force: bool = False) -> dict[str, Any]:
@@ -620,13 +790,16 @@ def push_draft(draft_id: int, *, force: bool = False) -> dict[str, Any]:
     instance_id = draft.get("resume_instance_id")
     current = _instance_latex(instance_id)
     if current is None:
+        # `pushed_latex` describes a row nobody can lose work from, so there
+        # is nothing here to refuse over, and minting the variant on this
+        # branch alone is what stops a refused push leaving one behind.
+        #
         # `resumes.create_instance` opens connections of its own, so it has to
         # finish before this function opens a write of its own.
         instance_id = resumes.create_instance(draft["name"], latex_source="")["id"]
-        current = ""
-
-    if current != (draft.get("pushed_latex") or "") and not force:
-        raise PushConflict(draft_id, instance_id, latex, current, draft.get("pushed_latex") or "")
+    elif _would_overwrite(draft, current, latex) and not force:
+        raise PushConflict(draft_id, instance_id, latex, current,
+                           draft.get("pushed_latex") or "")
 
     resumes.update_instance(instance_id, {"latex": latex})
     with get_db() as conn:

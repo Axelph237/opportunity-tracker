@@ -110,6 +110,19 @@ describe('error handling', () => {
     await expect(api.stats()).rejects.not.toBeInstanceOf(ApiOfflineError)
   })
 
+  it('carries the status and the parsed detail on the error it throws', async () => {
+    // A 409 from a push is not a failure to report. It carries the hand edit
+    // the page shows before it offers to overwrite anything, and a caller
+    // that only saw the message would have to parse it back out of a string.
+    const detail = { diverged: true, current_latex: '% by hand' }
+    fetch.mockResolvedValue(jsonResponse({ detail }, { status: 409 }))
+
+    const error = await api.pushDraft(9).catch((caught) => caught)
+
+    expect(error.status).toBe(409)
+    expect(error.detail).toEqual(detail)
+  })
+
   it('502/503/504 from the dev proxy are treated as the backend being offline', async () => {
     fetch.mockResolvedValue(jsonResponse({ detail: 'Backend not reachable' }, { status: 503 }))
     await expect(api.stats()).rejects.toBeInstanceOf(ApiOfflineError)

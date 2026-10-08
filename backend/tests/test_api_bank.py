@@ -196,6 +196,8 @@ def test_entries_list_in_the_order_the_user_arranged_them(app_client):
 
 
 def test_reorder_renumbers_positions_densely_so_none_collide(app_client):
+    """Reading the positions off in list order says 0, 1 whatever happened,
+    including nothing. Which entry holds which number is the claim."""
     first = make_entry(app_client, title="First")
     second = make_entry(app_client, title="Second")
 
@@ -203,7 +205,9 @@ def test_reorder_renumbers_positions_densely_so_none_collide(app_client):
         "/api/bank/entries/reorder", json={"ids": [second["id"], first["id"]]}
     ).json()
 
-    assert [entry["position"] for entry in reordered] == [0, 1]
+    assert [(entry["title"], entry["position"]) for entry in reordered] == [
+        ("Second", 0), ("First", 1)
+    ]
 
 
 def test_reorder_ignores_an_id_that_no_longer_exists(app_client):

@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import sys
-import types
 
 import pytest
 
@@ -67,6 +65,79 @@ def test_a_new_draft_starts_with_an_empty_body(app_client):
     assert draft["pushed_latex"] is None
 
 
+@pytest.mark.parametrize("stored", ["{not json", "[]", '"a string"'])
+def test_a_draft_whose_stored_body_is_not_a_document_refuses_to_be_read(app_client, stored):
+    """Reading it as an empty document is worse than failing: the next push
+    writes that empty document over the user's variant and reports success."""
+    draft = make_draft(app_client)
+    with database.get_db() as conn:
+        conn.execute("UPDATE resume_drafts SET body = ? WHERE id = ?", (stored, draft["id"]))
+
+    with pytest.raises(drafts.CorruptDraft):
+        drafts.get_draft(draft["id"])
+
+
+def test_one_corrupt_draft_does_not_take_the_list_down_with_it(app_client):
+    """Every healthy draft is reachable only through the picker, so a list
+    that dies on one bad row leaves them intact and unreachable. Nothing a
+    push writes comes from here; every write re-reads the body strictly."""
+    good = make_draft(app_client, name="Still fine")
+    bad = make_draft(app_client, name="Damaged")
+    with database.get_db() as conn:
+        conn.execute("UPDATE resume_drafts SET body = '{not json' WHERE id = ?", (bad["id"],))
+
+    listed = app_client.get("/api/drafts")
+
+    assert listed.status_code == 200, listed.text
+    assert {row["name"] for row in listed.json()} == {"Still fine", "Damaged"}
+    assert app_client.get(f"/api/drafts/{good['id']}").status_code == 200
+    with pytest.raises(drafts.CorruptDraft):
+        drafts.get_draft(bad["id"])
+
+
+def test_a_proposal_whose_operations_will_not_parse_can_still_be_dismissed(app_client):
+    """Dismissing needs nothing out of that column, and an unreadable
+    proposal is the one the user most needs to be rid of."""
+    draft = make_draft(app_client)
+    proposal_id = make_proposal(draft["id"], [])
+    with database.get_db() as conn:
+        conn.execute("UPDATE draft_proposals SET operations = '{' WHERE id = ?", (proposal_id,))
+
+    response = app_client.post(f"/api/proposals/{proposal_id}/resolve", json={"action": "dismiss"})
+
+    assert response.status_code == 200, response.text
+    listed = app_client.get(f"/api/drafts/{draft['id']}/proposals").json()
+    assert [p["status"] for p in listed] == ["dismissed"]
+
+
+def test_a_proposal_whose_operations_will_not_parse_refuses_to_be_read(app_client):
+    draft = make_draft(app_client)
+    proposal_id = make_proposal(draft["id"], [])
+    with database.get_db() as conn:
+        conn.execute("UPDATE draft_proposals SET operations = '{' WHERE id = ?", (proposal_id,))
+
+    with pytest.raises(drafts.CorruptDraft):
+        drafts.get_proposal(proposal_id)
+
+
+def test_a_draft_cannot_be_attached_to_a_job_post_that_is_not_there(app_client):
+    """SQLite refuses the link too, but its IntegrityError names no field and
+    comes back as a 500 the user cannot act on."""
+    response = app_client.post("/api/drafts", json={"name": "For ACME", "job_post_id": 999})
+
+    assert response.status_code == 400, response.text
+    assert "job post 999" in response.json()["detail"]
+
+
+def test_a_draft_cannot_be_pointed_at_a_resume_that_is_not_there(app_client):
+    draft = make_draft(app_client)
+
+    response = app_client.patch(f"/api/drafts/{draft['id']}", json={"resume_instance_id": 999})
+
+    assert response.status_code == 400, response.text
+    assert "resume 999" in response.json()["detail"]
+
+
 def test_an_unknown_draft_is_a_404_on_every_verb(app_client):
     assert app_client.get("/api/drafts/404").status_code == 404
     assert app_client.patch("/api/drafts/404", json={"name": "x"}).status_code == 404
@@ -124,6 +195,51 @@ def test_two_placements_that_arrive_with_the_same_ref_are_separated(app_client):
     assert len(set(refs)) == 2
 
 
+# ----------------------------------------------------------- the placements route
+
+def test_placing_an_entry_over_http_puts_it_on_the_canvas(app_client):
+    """The composer's only way to take something out of the bank. No route was
+    ever registered for it, so the rail had nowhere to drop."""
+    draft = make_draft(app_client)
+    entry = make_entry(app_client, bullets=["Ran the rig"])
+
+    response = app_client.post(f"/api/drafts/{draft['id']}/placements",
+                               json={"entry_id": entry["id"]})
+
+    assert response.status_code == 201, response.text
+    section = response.json()["body"]["sections"][0]
+    assert section["label"] == "Experience"
+    assert [p["title"] for p in section["placements"]] == ["Lab assistant"]
+    assert [b["text"] for b in section["placements"][0]["bullets"]] == ["Ran the rig"]
+
+
+def test_placing_an_entry_into_a_named_section_files_it_there(app_client):
+    draft = make_draft(app_client)
+    first = make_entry(app_client, kind="project", title="Delphi")
+    app_client.post(f"/api/drafts/{draft['id']}/placements", json={"entry_id": first["id"]})
+    projects = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]["sections"][0]
+    second = make_entry(app_client, title="Lab assistant")
+
+    response = app_client.post(f"/api/drafts/{draft['id']}/placements",
+                               json={"entry_id": second["id"], "section_ref": projects["ref"]})
+
+    sections = response.json()["body"]["sections"]
+    assert [s["label"] for s in sections] == ["Projects"]
+    assert [p["title"] for p in sections[0]["placements"]] == ["Delphi", "Lab assistant"]
+
+
+def test_placing_over_http_reports_an_unknown_draft_and_an_unknown_entry(app_client):
+    entry = make_entry(app_client)
+    draft = make_draft(app_client)
+
+    assert app_client.post("/api/drafts/999/placements",
+                           json={"entry_id": entry["id"]}).status_code == 404
+    assert app_client.post(f"/api/drafts/{draft['id']}/placements",
+                           json={"entry_id": 999}).status_code == 404
+    assert app_client.post(f"/api/drafts/{draft['id']}/placements",
+                           json={"entry_id": entry["id"], "section_ref": "nope"}).status_code == 400
+
+
 # ------------------------------------------------------------------ snapshots
 
 def test_placing_an_entry_files_it_under_the_section_its_kind_belongs_to(app_client):
@@ -171,6 +287,57 @@ def test_a_snapshot_records_where_each_bullet_came_from(app_client):
     assert bullet["source_text"] == "Ran the rig"
 
 
+def test_a_renamed_section_still_takes_the_next_entry_of_its_kind(app_client):
+    """Renaming Experience to suit the job is the documented reason sections
+    are renameable. Filing by label meant the next experience placed after a
+    rename opened a second section with the old name beside the renamed one."""
+    draft = make_draft(app_client)
+    first = make_entry(app_client, title="Lab assistant")
+    drafts.place_entry(draft["id"], first["id"])
+    section = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]["sections"][0]
+    resolve(app_client, make_proposal(draft["id"], [
+        {"op": "RenameSection", "section_id": section["ref"], "label": "Research Experience"},
+    ]))
+
+    drafts.place_entry(draft["id"], make_entry(app_client, title="Teaching assistant")["id"])
+
+    sections = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]["sections"]
+    assert [s["label"] for s in sections] == ["Research Experience"]
+    assert [p["title"] for p in sections[0]["placements"]] == ["Lab assistant", "Teaching assistant"]
+
+
+def test_renaming_a_section_on_the_canvas_keeps_its_key(app_client):
+    """The canvas renames by saving the whole body back. The key has to
+    survive that round trip or the rename splits the section anyway."""
+    draft = make_draft(app_client)
+    drafts.place_entry(draft["id"], make_entry(app_client, title="Lab assistant")["id"])
+    body = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]
+    body["sections"][0]["label"] = "Research Experience"
+    saved = app_client.patch(f"/api/drafts/{draft['id']}", json={"body": body}).json()
+    assert saved["body"]["sections"][0]["key"] == "Experience"
+
+    drafts.place_entry(draft["id"], make_entry(app_client, title="Teaching assistant")["id"])
+
+    sections = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]["sections"]
+    assert [s["label"] for s in sections] == ["Research Experience"]
+    assert [p["title"] for p in sections[0]["placements"]] == ["Lab assistant", "Teaching assistant"]
+
+
+def test_a_section_the_client_sent_without_a_key_still_takes_its_entries(app_client):
+    """The canvas saves whole bodies, and a body composed before keys existed
+    carries none. Such a section is filed under the label it was created with
+    rather than being passed over for a fresh one."""
+    draft = make_draft(app_client)
+    app_client.patch(f"/api/drafts/{draft['id']}", json={"body": {"sections": [
+        {"ref": "s1", "label": "Experience", "placements": []},
+    ]}})
+
+    drafts.place_entry(draft["id"], make_entry(app_client)["id"])
+
+    sections = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]["sections"]
+    assert [len(s["placements"]) for s in sections] == [1]
+
+
 def test_placing_an_entry_into_a_section_that_does_not_exist_is_refused(app_client):
     draft = make_draft(app_client)
     entry = make_entry(app_client)
@@ -211,9 +378,13 @@ def test_a_draft_nobody_has_touched_gets_no_sync_proposal(app_client):
 
 def test_a_bullet_tailored_away_from_the_bank_is_not_reported_as_drift(app_client):
     """Drift is measured against the wording the bank had when the line was
-    placed, not against the draft's own text. A deliberate rewrite is not stale."""
+    placed, not against the draft's own text. A deliberate rewrite is not stale.
+
+    The second bullet is genuinely out of date, so a check that reported
+    nothing at all would agree with this test for the wrong reason.
+    """
     draft = make_draft(app_client)
-    entry = make_entry(app_client, bullets=["Assisted with the rig"])
+    entry = make_entry(app_client, bullets=["Assisted with the rig", "Logged the runs"])
     drafts.place_entry(draft["id"], entry["id"])
     placement = only_placement(app_client, draft["id"])
     proposal_id = make_proposal(draft["id"], [{
@@ -222,8 +393,11 @@ def test_a_bullet_tailored_away_from_the_bank_is_not_reported_as_drift(app_clien
         "bullet_id": entry["bullets"][0]["id"], "text": "Rebuilt the beamline rig",
     }])
     resolve(app_client, proposal_id)
+    app_client.patch(f"/api/bank/bullets/{entry['bullets'][1]['id']}", json={"text": "Logged 40 runs"})
 
-    assert drafts.sync_proposal(draft["id"]) is None
+    standing = drafts.sync_proposal(draft["id"])
+
+    assert [op["text"] for op in standing["operations"]] == ["Logged 40 runs"]
 
 
 def test_accepting_a_drifted_bullet_stops_it_drifting_again(app_client):
@@ -257,7 +431,7 @@ def test_undoing_the_bank_edit_withdraws_the_offer_to_sync(app_client):
     drafts.place_entry(draft["id"], entry["id"])
     bullet_id = entry["bullets"][0]["id"]
     app_client.patch(f"/api/bank/bullets/{bullet_id}", json={"text": "Rebuilt the rig"})
-    drafts.sync_proposal(draft["id"])
+    assert drafts.sync_proposal(draft["id"]) is not None
 
     app_client.patch(f"/api/bank/bullets/{bullet_id}", json={"text": "Assisted with the rig"})
 
@@ -274,6 +448,53 @@ def test_reading_the_proposal_list_refreshes_the_drift_check(app_client):
     listed = app_client.get(f"/api/drafts/{draft['id']}/proposals").json()
 
     assert [proposal["kind"] for proposal in listed] == ["sync"]
+
+
+def test_reading_the_list_twice_offers_the_same_proposal_both_times(app_client):
+    """The drift check runs on read. Re-minting the row would hand the second
+    reader a different id for an offer that has not changed."""
+    draft = make_draft(app_client)
+    entry = make_entry(app_client, bullets=["Assisted with the rig"])
+    drafts.place_entry(draft["id"], entry["id"])
+    app_client.patch(f"/api/bank/bullets/{entry['bullets'][0]['id']}", json={"text": "Rebuilt the rig"})
+
+    first = app_client.get(f"/api/drafts/{draft['id']}/proposals").json()
+    second = app_client.get(f"/api/drafts/{draft['id']}/proposals").json()
+
+    assert [p["kind"] for p in first] == ["sync"]
+    assert first == second
+
+
+def test_an_offer_survives_the_read_that_follows_it(app_client):
+    """The client lists, the user clicks apply, and the list refreshes
+    underneath. The id they are holding has to still resolve."""
+    draft = make_draft(app_client)
+    entry = make_entry(app_client, bullets=["Assisted with the rig"])
+    drafts.place_entry(draft["id"], entry["id"])
+    app_client.patch(f"/api/bank/bullets/{entry['bullets'][0]['id']}", json={"text": "Rebuilt the rig"})
+    proposal_id = app_client.get(f"/api/drafts/{draft['id']}/proposals").json()[0]["id"]
+
+    app_client.get(f"/api/drafts/{draft['id']}/proposals")
+
+    assert resolve(app_client, proposal_id).status_code == 200
+    assert only_placement(app_client, draft["id"])["bullets"][0]["text"] == "Rebuilt the rig"
+
+
+def test_a_changed_drift_set_replaces_the_standing_offer(app_client):
+    """Stability is for an unchanged draft. An offer whose contents moved on is
+    a different offer, and applying the old one would write stale text."""
+    draft = make_draft(app_client)
+    entry = make_entry(app_client, bullets=["Assisted with the rig"])
+    drafts.place_entry(draft["id"], entry["id"])
+    bullet_id = entry["bullets"][0]["id"]
+    app_client.patch(f"/api/bank/bullets/{bullet_id}", json={"text": "Rebuilt the rig"})
+    first = app_client.get(f"/api/drafts/{draft['id']}/proposals").json()[0]
+
+    app_client.patch(f"/api/bank/bullets/{bullet_id}", json={"text": "Rebuilt the beamline rig"})
+    second = app_client.get(f"/api/drafts/{draft['id']}/proposals").json()
+
+    assert [p["id"] for p in second] != [first["id"]]
+    assert [op["text"] for op in second[0]["operations"]] == ["Rebuilt the beamline rig"]
 
 
 # ------------------------------------------------------------ the op algebra
@@ -316,6 +537,81 @@ def test_the_accept_states_the_user_sent_beat_the_ones_the_proposal_was_stored_w
     assert [b["text"] for b in only_placement(app_client, draft["id"])["bullets"]] == ["One", "Two"]
 
 
+def test_an_operation_nobody_proposed_cannot_be_smuggled_into_a_resolve(app_client):
+    """A resolve records a decision on what was offered. Taking the client's
+    list wholesale made every proposal an open write channel into the draft."""
+    draft, _entry, placement = placed(app_client)
+    proposal_id = make_proposal(draft["id"], [
+        {"op": "DropBullet", "placement_id": placement["ref"],
+         "bullet_ref": placement["bullets"][0]["ref"]},
+    ])
+
+    response = resolve(app_client, proposal_id, operations=[
+        {"op": "DropBullet", "placement_id": placement["ref"],
+         "bullet_ref": placement["bullets"][1]["ref"]},
+    ])
+
+    assert response.status_code == 400, response.text
+    assert [b["text"] for b in only_placement(app_client, draft["id"])["bullets"]] == ["One", "Two"]
+
+
+def test_a_resolve_records_the_decision_without_rewriting_the_offer(app_client):
+    """The stored proposal is the evidence of what the tailoring pass asked
+    for. A resolve may say yes or no to each line and nothing else."""
+    draft, _entry, placement = placed(app_client)
+    proposal_id = make_proposal(draft["id"], [
+        {"op": "DropBullet", "placement_id": placement["ref"],
+         "bullet_ref": placement["bullets"][0]["ref"],
+         "rationale": "The ad never mentions rigs"},
+    ])
+
+    resolve(app_client, proposal_id, operations=[
+        {"op": "DropBullet", "accepted": False, "placement_id": placement["ref"],
+         "bullet_ref": placement["bullets"][0]["ref"], "rationale": "I made this up"},
+    ])
+
+    stored = drafts.get_proposal(proposal_id)["operations"]
+    assert [op["rationale"] for op in stored] == ["The ad never mentions rigs"]
+    assert [op["accepted"] for op in stored] == [False]
+
+
+def test_a_reviewed_set_that_is_not_the_offered_set_is_refused(app_client):
+    """The answer is the offer with the boxes filled in. A short list is a
+    client that lost track of what it was answering, not a set of rejections
+    the server should guess at."""
+    draft, _entry, placement = placed(app_client)
+    proposal_id = make_proposal(draft["id"], [
+        {"op": "DropBullet", "placement_id": placement["ref"],
+         "bullet_ref": placement["bullets"][0]["ref"]},
+        {"op": "DropBullet", "placement_id": placement["ref"],
+         "bullet_ref": placement["bullets"][1]["ref"]},
+    ])
+
+    response = resolve(app_client, proposal_id, operations=[
+        {"op": "DropBullet", "placement_id": placement["ref"],
+         "bullet_ref": placement["bullets"][0]["ref"]},
+    ])
+
+    assert response.status_code == 400, response.text
+    assert [b["text"] for b in only_placement(app_client, draft["id"])["bullets"]] == ["One", "Two"]
+
+
+def test_two_identical_operations_take_their_own_answers(app_client):
+    """Paired by position, because two operations that are identical cannot
+    be told apart by content. Matching on content gave them both whichever
+    answer arrived last, so a box the user unticked was applied anyway."""
+    draft, entry, placement = placed(app_client, bullets=("One",))
+    add = {"op": "AddBullet", "placement_id": placement["ref"],
+           "bullet_id": entry["bullets"][0]["id"]}
+    proposal_id = make_proposal(draft["id"], [dict(add), dict(add)])
+
+    resolve(app_client, proposal_id,
+            operations=[dict(add, accepted=True), dict(add, accepted=False)])
+
+    assert [b["text"] for b in only_placement(app_client, draft["id"])["bullets"]] == ["One", "One"]
+    assert [op["accepted"] for op in drafts.get_proposal(proposal_id)["operations"]] == [True, False]
+
+
 def test_applying_the_same_proposal_twice_changes_nothing_the_second_time(app_client):
     """A retry, a double click or a replayed request must not drop two bullets."""
     draft, _entry, placement = placed(app_client, bullets=("One", "Two", "Three"))
@@ -356,6 +652,33 @@ def test_whoever_resolves_a_proposal_first_decides_what_it_did(app_client, monke
     assert [b["text"] for b in only_placement(app_client, draft["id"])["bullets"]] == [
         "One", "Two", "Three"
     ]
+
+
+def test_an_edit_that_lands_mid_apply_is_kept(app_client, monkeypatch):
+    """Routes are sync `def`, so the user can save the canvas while an apply is
+    in flight. The apply read the body at the start and stored it at the end,
+    so a save that landed in between vanished with no error anywhere."""
+    draft, _entry, placement = placed(app_client, bullets=("One", "Two"))
+    operation = {"op": "DropBullet", "placement_id": placement["ref"],
+                 "bullet_ref": placement["bullets"][0]["ref"]}
+    proposal_id = make_proposal(draft["id"], [operation])
+    real_check = drafts._check_bank_refs
+    saved = []
+
+    def the_user_saves_the_canvas_meanwhile(accepted, index):
+        if not saved:
+            saved.append(1)
+            body = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]
+            body["sections"][0]["label"] = "Research Experience"
+            app_client.patch(f"/api/drafts/{draft['id']}", json={"body": body})
+        return real_check(accepted, index)
+
+    monkeypatch.setattr(drafts, "_check_bank_refs", the_user_saves_the_canvas_meanwhile)
+    drafts.apply_proposal(proposal_id)
+
+    section = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]["sections"][0]
+    assert section["label"] == "Research Experience"
+    assert [b["text"] for b in section["placements"][0]["bullets"]] == ["Two"]
 
 
 def test_an_applied_proposal_is_marked_applied_and_stops_being_pending(app_client):
@@ -417,6 +740,41 @@ def test_an_add_entry_operation_that_names_no_entry_at_all_is_refused(app_client
     proposal_id = make_proposal(draft["id"], [{"op": "AddEntry", "section": "Experience"}])
 
     assert resolve(app_client, proposal_id).status_code == 400
+
+
+def test_a_bullet_cannot_be_added_under_a_record_it_does_not_belong_to(app_client):
+    """The closed algebra is what stops a tailoring pass inventing experience.
+    Hanging one employer's achievement under another is exactly that, and it
+    sticks: the snapshot anchors to the foreign bullet, so editing that bullet
+    in the bank writes the misattribution back in."""
+    draft, _entry, placement = placed(app_client, bullets=("Ran the rig",))
+    elsewhere = make_entry(app_client, title="Barista", organization="Cafe",
+                           bullets=["Shipped a compiler"])
+    proposal_id = make_proposal(draft["id"], [{
+        "op": "AddBullet", "placement_id": placement["ref"],
+        "bullet_id": elsewhere["bullets"][0]["id"],
+    }])
+
+    response = resolve(app_client, proposal_id)
+
+    assert response.status_code == 400, response.text
+    assert [b["text"] for b in only_placement(app_client, draft["id"])["bullets"]] == ["Ran the rig"]
+
+
+def test_a_bullet_from_the_records_own_entry_is_added(app_client):
+    """The other side of the same check: a bullet the user wrote under this
+    record, dropped from the draft and offered back, still goes in."""
+    draft, entry, placement = placed(app_client, bullets=("One", "Two"))
+    body = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]
+    body["sections"][0]["placements"][0]["bullets"] = []
+    app_client.patch(f"/api/drafts/{draft['id']}", json={"body": body})
+    proposal_id = make_proposal(draft["id"], [{
+        "op": "AddBullet", "placement_id": placement["ref"],
+        "bullet_id": entry["bullets"][1]["id"],
+    }])
+
+    assert resolve(app_client, proposal_id).status_code == 200
+    assert [b["text"] for b in only_placement(app_client, draft["id"])["bullets"]] == ["Two"]
 
 
 def test_an_operation_naming_a_line_that_is_not_in_the_draft_is_refused(app_client):
@@ -510,6 +868,26 @@ def test_a_rewritten_bullet_stays_anchored_to_the_record_it_came_from(app_client
     bullet = only_placement(app_client, draft["id"])["bullets"][0]
     assert bullet["text"] == "Rebuilt the beamline rig"
     assert bullet["source_bullet_id"] == entry["bullets"][0]["id"]
+
+
+def test_a_tailored_rewrite_leaves_unreviewed_drift_standing(app_client):
+    """A tailoring pass rewrites for the job it is aimed at. It has not shown
+    the user what the bank now says, so re-anchoring to it would withdraw a
+    decision they were owed and never saw."""
+    draft, entry, placement = placed(app_client, bullets=("Assisted with the rig",))
+    bullet_id = entry["bullets"][0]["id"]
+    app_client.patch(f"/api/bank/bullets/{bullet_id}", json={"text": "Rebuilt the rig"})
+    proposal_id = make_proposal(draft["id"], [
+        {"op": "RewriteBullet", "placement_id": placement["ref"],
+         "bullet_ref": placement["bullets"][0]["ref"], "bullet_id": bullet_id,
+         "text": "Rebuilt the beamline rig for the ACME run"},
+    ])
+
+    resolve(app_client, proposal_id)
+
+    standing = drafts.sync_proposal(draft["id"])
+    assert standing is not None, "the drift the user never saw went away on its own"
+    assert [op["text"] for op in standing["operations"]] == ["Rebuilt the rig"]
 
 
 # ------------------------------------------------------------------ rendering
@@ -640,35 +1018,43 @@ def test_an_untouched_variant_does_not_read_as_diverged(app_client, resume_tmp):
     assert app_client.get(f"/api/drafts/{draft['id']}/latex").json()["diverged"] is False
 
 
+def test_pushing_after_the_variant_was_deleted_starts_exactly_one_fresh_one(
+    app_client, resume_tmp
+):
+    """A variant that is gone is not a hand edit. `pushed_latex` then describes
+    a row nobody can lose work from, so refusing protects nothing, and every
+    refused retry minted another empty variant on its way to saying no."""
+    draft, _entry, _placement = placed(app_client, bullets=("Ran the rig",))
+    first = app_client.post(f"/api/drafts/{draft['id']}/push").json()
+    resumes.delete_instance(first["resume_instance_id"])
+    before = len(resumes.list_instances())
+
+    for _ in range(3):
+        again = app_client.post(f"/api/drafts/{draft['id']}/push")
+        assert again.status_code == 200, again.text
+
+    assert len(resumes.list_instances()) == before + 1
+    replacement = again.json()["resume_instance_id"]
+    assert replacement != first["resume_instance_id"]
+    assert resumes.get_instance(replacement)["latex"] == again.json()["latex"]
+    assert app_client.get(f"/api/drafts/{draft['id']}").json()["resume_instance_id"] == replacement
+
+
+def test_a_push_that_would_change_nothing_is_not_a_conflict(app_client, resume_tmp):
+    """Refusing protects work a push would discard. A variant that already
+    holds exactly what the draft renders has no such work in it."""
+    draft, _entry, _placement = placed(app_client, bullets=("Ran the rig",))
+    rendered = app_client.get(f"/api/drafts/{draft['id']}/latex").json()["latex"]
+    instance = resumes.create_instance("Target", latex_source=rendered)
+    app_client.patch(f"/api/drafts/{draft['id']}", json={"resume_instance_id": instance["id"]})
+
+    response = app_client.post(f"/api/drafts/{draft['id']}/push")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["latex"] == rendered
+
+
 # ------------------------------------------------------------------- coverage
-
-@pytest.fixture
-def fake_keywords(monkeypatch):
-    """Stand in for the pure matcher another workstream owns.
-
-    What is under test here is the segmentation and the totals this module
-    derives, not the matching rule, which has its own tests.
-    """
-    module = types.ModuleType("keywords")
-    module.seen = []
-
-    def coverage(terms, segments):
-        module.seen.append((terms, segments))
-        return [
-            {
-                "term": term["term"],
-                "bucket": term.get("bucket", "technical"),
-                "covered": any(term["term"].lower() in text.lower() for _ref, text in segments),
-                "hits": sum(text.lower().count(term["term"].lower()) for _ref, text in segments),
-                "where": [ref for ref, text in segments if term["term"].lower() in text.lower()],
-            }
-            for term in terms
-        ]
-
-    module.coverage = coverage
-    monkeypatch.setitem(sys.modules, "keywords", module)
-    return module
-
 
 def job_post(keywords: list[dict]) -> int:
     with database.get_db() as conn:
@@ -688,7 +1074,7 @@ def test_a_draft_with_no_job_post_behind_it_reports_nothing_to_cover(app_client)
                       "covered": 0, "total": 0, "keywords": []}
 
 
-def test_coverage_counts_the_terms_the_draft_actually_says(app_client, fake_keywords):
+def test_coverage_counts_the_terms_the_draft_actually_says(app_client):
     post_id = job_post([{"term": "PyTorch"}, {"term": "Fortran"}])
     draft = make_draft(app_client, job_post_id=post_id)
     entry = make_entry(app_client, bullets=["Trained a PyTorch model"])
@@ -701,7 +1087,7 @@ def test_coverage_counts_the_terms_the_draft_actually_says(app_client, fake_keyw
     assert [term["term"] for term in report["keywords"] if term["covered"]] == ["PyTorch"]
 
 
-def test_coverage_points_at_the_entry_carrying_each_term(app_client, fake_keywords):
+def test_coverage_points_at_the_entry_carrying_each_term(app_client):
     post_id = job_post([{"term": "PyTorch"}])
     draft = make_draft(app_client, job_post_id=post_id)
     entry = make_entry(app_client, bullets=["Trained a PyTorch model"])
@@ -712,15 +1098,34 @@ def test_coverage_points_at_the_entry_carrying_each_term(app_client, fake_keywor
     assert report["keywords"][0]["where"] == [only_placement(app_client, draft["id"])["ref"]]
 
 
-def test_a_term_hiding_in_a_repo_url_does_not_count_as_covered():
-    """Verified against the real regex chain upstream: a project linking to
-    github.com/me/pytorch-oracle would otherwise claim PyTorch."""
-    body = {"sections": [{"ref": "s", "label": "Projects", "placements": [
-        {"ref": "p", "kind": "project", "title": "Oracle", "detail": "Rust",
-         "url": "https://github.com/me/pytorch-oracle", "bullets": []},
-    ]}]}
+def test_a_term_buried_inside_a_longer_word_does_not_count_as_covered(app_client):
+    """The report runs the real matcher, which compares whole folded tokens.
+    A substring check would read \"Collaborated\" as another mention of Lab and
+    tell the user they had said it twice."""
+    post_id = job_post([{"term": "Lab"}])
+    draft = make_draft(app_client, job_post_id=post_id)
+    entry = make_entry(app_client, title="Lab assistant", bullets=["Collaborated on the rig"])
+    drafts.place_entry(draft["id"], entry["id"])
 
-    assert drafts.draft_segments(body) == [("p", "Oracle Rust")]
+    report = app_client.get(f"/api/drafts/{draft['id']}/coverage").json()
+
+    assert report["keywords"][0]["hits"] == 1
+
+
+def test_a_term_hiding_in_a_repo_url_does_not_count_as_covered(app_client):
+    """A project linking to github.com/me/pytorch-oracle would otherwise claim
+    PyTorch, which is the report telling the user the resume says something it
+    does not say."""
+    post_id = job_post([{"term": "PyTorch"}])
+    draft = make_draft(app_client, job_post_id=post_id)
+    entry = make_entry(app_client, kind="project", title="Oracle", detail="Rust",
+                       url="https://github.com/me/pytorch-oracle", bullets=["Shipped it"])
+    drafts.place_entry(draft["id"], entry["id"])
+
+    report = app_client.get(f"/api/drafts/{draft['id']}/coverage").json()
+
+    assert [term["covered"] for term in report["keywords"]] == [False]
+    assert report["covered"] == 0
 
 
 def test_a_segment_carries_the_entrys_own_words_and_its_bullets():

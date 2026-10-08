@@ -17,8 +17,10 @@ vi.mock('../api', async (importOriginal) => {
       createDraft: vi.fn(),
       updateDraft: vi.fn(),
       draftCoverage: vi.fn(),
+      placeDraftEntry: vi.fn(),
       pushDraft: vi.fn(),
       tailorDraft: vi.fn(),
+      draftProposals: vi.fn(),
       resolveProposal: vi.fn(),
       bankEntries: vi.fn(),
       createBankEntry: vi.fn(),
@@ -82,19 +84,27 @@ const BODY = {
 
 const DRAFT = { id: 9, name: 'ACME intern', job_post_id: 4, resume_instance_id: null, body: BODY, pushed_at: null }
 
+// `CoverageReport` as models.py declares it. The terms ride on `keywords`:
+// a fixture that invented a `coverage` field would agree with a page reading
+// the same invented field and report 0 of 0 to the user forever.
 const coverageOf = (covered) => ({
-  coverage: [
+  draft_id: 9,
+  job_post_id: 4,
+  covered: covered ? 1 : 0,
+  total: 2,
+  keywords: [
     { term: 'Qiskit', bucket: 'technical', covered, hits: covered ? 1 : 0, where: covered ? ['p1'] : [] },
     { term: 'optimize', bucket: 'verb', covered: false, hits: 0, where: [] },
   ],
 })
 
-async function setup({ drafts = [DRAFT], draft = DRAFT, bank = BANK, jobPost = JOB_POST, coverage } = {}) {
+async function setup({ drafts = [DRAFT], draft = DRAFT, bank = BANK, jobPost = JOB_POST, coverage, proposals = [] } = {}) {
   api.drafts.mockResolvedValue(drafts)
   api.bankEntries.mockResolvedValue(bank)
   api.draft.mockResolvedValue(draft)
   api.jobPost.mockResolvedValue(jobPost)
   api.draftCoverage.mockResolvedValue(coverage ?? coverageOf(false))
+  api.draftProposals.mockResolvedValue(proposals)
   api.updateDraft.mockImplementation(async (id, patch) => ({ ...draft, ...patch }))
 
   render(
@@ -177,6 +187,40 @@ describe('Builder / an empty bank', () => {
   })
 })
 
+describe('Builder / placing a record from the bank', () => {
+  it('asks the server to cut the snapshot, and shows what it sent back', async () => {
+    const placed = {
+      ...DRAFT,
+      body: {
+        sections: [
+          {
+            ...BODY.sections[0],
+            placements: [
+              ...BODY.sections[0].placements,
+              { ref: 'p9', entry_id: 1, kind: 'project', title: 'Delphi', bullets: [] },
+            ],
+          },
+        ],
+      },
+    }
+    api.placeDraftEntry.mockResolvedValue(placed)
+    await setup()
+
+    const dataTransfer = transfer()
+    fireEvent.dragStart(
+      screen.getByRole('button', { name: 'Edit Research Assistant' }).closest('li'),
+      { dataTransfer },
+    )
+    fireEvent.drop(screen.getByDisplayValue('Experience').closest('section'), { dataTransfer })
+
+    await waitFor(() =>
+      expect(api.placeDraftEntry).toHaveBeenCalledWith(9, { entry_id: 1, section_ref: 's1' }),
+    )
+    expect(api.updateDraft).not.toHaveBeenCalled()
+    expect(await screen.findByText('Delphi')).toBeInTheDocument()
+  })
+})
+
 describe('Builder / reordering bullets', () => {
   it('persists the new order to the server', async () => {
     await setup()
@@ -234,7 +278,7 @@ describe('Builder / the coverage feedback loop', () => {
 describe('Builder / the cold-start import', () => {
   const PREVIEW = {
     entries: [
-      { kind: 'experience', title: 'Research Assistant', organization: 'Fermilab', bullets: [{ text: 'Built the DAQ pipeline' }] },
+      { kind: 'experience', title: 'Research Assistant', organization: 'Fermilab', bullets: ['Built the DAQ pipeline'] },
       { kind: 'project', title: 'Delphi', organization: null, bullets: [] },
     ],
   }
@@ -246,6 +290,7 @@ describe('Builder / the cold-start import', () => {
 
     await user.click(screen.getByRole('button', { name: /import from my resume/i }))
     expect(await screen.findByText(/nothing is saved until you say so/i)).toBeInTheDocument()
+    expect(screen.getByText('Built the DAQ pipeline', { selector: 'li' })).toBeInTheDocument()
     expect(api.createBankEntry).not.toHaveBeenCalled()
   })
 
@@ -261,10 +306,8 @@ describe('Builder / the cold-start import', () => {
     await user.click(within(panel).getByRole('button', { name: /add 1 to my bank/i }))
 
     await waitFor(() => expect(api.createBankEntry).toHaveBeenCalledTimes(1))
-    expect(api.createBankEntry).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Research Assistant' }),
-    )
-    expect(api.createBankBullet).toHaveBeenCalledWith(50, { text: 'Built the DAQ pipeline' })
+    expect(api.createBankEntry).toHaveBeenCalledWith(PREVIEW.entries[0])
+    expect(api.createBankBullet).not.toHaveBeenCalled()
   })
 })
 
@@ -303,8 +346,8 @@ describe('Builder / tailoring', () => {
     kind: 'tailor',
     summary: 'Leads with the simulation work.',
     operations: [
-      { id: 'o1', op: 'RewriteBullet', placement_id: 'p1', bullet_ref: 'b1', text: 'Rebuilt the DAQ pipeline' },
-      { id: 'o2', op: 'DropBullet', placement_id: 'p1', bullet_ref: 'b2' },
+      { op: 'RewriteBullet', placement_id: 'p1', bullet_ref: 'b1', text: 'Rebuilt the DAQ pipeline' },
+      { op: 'DropBullet', placement_id: 'p1', bullet_ref: 'b2' },
     ],
   }
 
@@ -334,7 +377,13 @@ describe('Builder / tailoring', () => {
     await user.click(within(panel).getByRole('button', { name: /apply 1 of 2/i }))
 
     await waitFor(() =>
-      expect(api.resolveProposal).toHaveBeenCalledWith(3, { status: 'applied', accepted: ['o1'] }),
+      expect(api.resolveProposal).toHaveBeenCalledWith(3, {
+        action: 'apply',
+        operations: [
+          { ...PROPOSAL.operations[0], accepted: true },
+          { ...PROPOSAL.operations[1], accepted: false },
+        ],
+      }),
     )
   })
 
@@ -349,12 +398,72 @@ describe('Builder / tailoring', () => {
     await user.click(within(panel).getByRole('button', { name: /discard all/i }))
 
     await waitFor(() =>
-      expect(api.resolveProposal).toHaveBeenCalledWith(3, { status: 'dismissed', accepted: [] }),
+      expect(api.resolveProposal).toHaveBeenCalledWith(3, { action: 'dismiss' }),
+    )
+  })
+})
+
+describe('Builder / drift waiting on a decision', () => {
+  const SYNC = {
+    id: 12,
+    kind: 'sync',
+    status: 'pending',
+    summary: '1 bullet changed in the bank since this draft was composed.',
+    operations: [
+      {
+        op: 'RewriteBullet',
+        accepted: true,
+        placement_id: 'p1',
+        bullet_ref: 'b1',
+        bullet_id: 11,
+        text: 'Rebuilt the DAQ pipeline',
+      },
+    ],
+  }
+
+  it('offers the standing proposal the server is holding', async () => {
+    await setup({ proposals: [SYNC] })
+    expect(api.draftProposals).toHaveBeenCalledWith(9)
+    expect(screen.getByRole('button', { name: 'Review 1 change' })).toBeInTheDocument()
+  })
+
+  it('says nothing when the draft is up to date with the bank', async () => {
+    await setup()
+    expect(screen.queryByRole('button', { name: /review \d+ change/i })).not.toBeInTheDocument()
+  })
+
+  it('opens it for review and applies the id the list handed out', async () => {
+    const user = userEvent.setup()
+    api.resolveProposal.mockResolvedValue({ ...DRAFT })
+    await setup({ proposals: [SYNC] })
+
+    await user.click(screen.getByRole('button', { name: 'Review 1 change' }))
+    const panel = await screen.findByRole('dialog')
+    expect(within(panel).getByText(/your bank has moved on/i)).toBeInTheDocument()
+    api.draftProposals.mockResolvedValue([])
+    await user.click(within(panel).getByRole('button', { name: /apply 1 of 1/i }))
+
+    await waitFor(() =>
+      expect(api.resolveProposal).toHaveBeenCalledWith(12, {
+        action: 'apply',
+        operations: [{ ...SYNC.operations[0], accepted: true }],
+      }),
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /review \d+ change/i })).not.toBeInTheDocument(),
     )
   })
 })
 
 describe('Builder / pushing to a resume', () => {
+  // The shape src/api.test.js pins: a 409 reaches a caller as a throw
+  // carrying the status and the parsed detail.
+  const refused = () =>
+    Object.assign(new Error('edited by hand'), {
+      status: 409,
+      detail: { diverged: true, current_latex: '% by hand' },
+    })
+
   it('writes the draft out when nothing has diverged', async () => {
     const user = userEvent.setup()
     api.pushDraft.mockResolvedValue({ diverged: false, pushed_at: '2026-10-07T12:00:00Z' })
@@ -369,20 +478,34 @@ describe('Builder / pushing to a resume', () => {
     // The LaTeX editor stays the escape hatch, so a push must never silently
     // replace work done there.
     const user = userEvent.setup()
-    api.pushDraft.mockResolvedValue({ diverged: true })
+    api.pushDraft.mockRejectedValueOnce(refused()).mockResolvedValue({ diverged: false })
     await setup()
 
     await user.click(screen.getByRole('button', { name: /push to resume/i }))
     const dialog = await screen.findByRole('alertdialog')
-    expect(within(dialog).getByText(/edited by hand/i)).toBeInTheDocument()
+    // The work about to be lost, not a description of it.
+    expect(within(dialog).getByText('% by hand')).toBeInTheDocument()
 
     await user.click(within(dialog).getByRole('button', { name: /replace it/i }))
     await waitFor(() => expect(api.pushDraft).toHaveBeenCalledWith(9, true))
   })
 
+  it('reports a push that failed for any other reason', async () => {
+    const user = userEvent.setup()
+    api.pushDraft.mockRejectedValue(
+      Object.assign(new Error('The resume template has no %%RESUME-BODY%% marker'), { status: 400 }),
+    )
+    await setup()
+
+    await user.click(screen.getByRole('button', { name: /push to resume/i }))
+
+    expect(await screen.findByText(/no %%RESUME-BODY%% marker/)).toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  })
+
   it('leaves the resume alone when the overwrite is refused', async () => {
     const user = userEvent.setup()
-    api.pushDraft.mockResolvedValue({ diverged: true })
+    api.pushDraft.mockRejectedValue(refused())
     await setup()
 
     await user.click(screen.getByRole('button', { name: /push to resume/i }))

@@ -75,14 +75,35 @@ def test_a_percent_in_a_bullet_is_escaped_rather_than_commenting_out_the_line():
     assert "38% on" not in rendered
 
 
-def test_a_url_keeps_its_underscores_and_tildes_intact():
+def test_a_url_keeps_the_characters_that_are_part_of_the_address():
     """Escaping a URL the way prose is escaped would send the reader to an
-    address that does not exist."""
+    address that does not exist, so `_` and `~` stay as they are."""
     rendered = render(
-        placement(kind="project", title="Oracle", url="https://example.org/~me/a_b#frag")
+        placement(kind="project", title="Oracle", url="https://example.org/~me/a_b")
     )
 
-    assert r"\href{https://example.org/~me/a_b\#frag}" in rendered
+    assert r"\href{https://example.org/~me/a_b}" in rendered
+
+
+def test_a_url_escapes_the_characters_tex_would_act_on():
+    """`&` is the alignment tab. An unescaped one inside `\\href` ends the
+    macro's argument early and takes the compile down, so a query string is
+    enough to make a resume unbuildable."""
+    rendered = render(
+        placement(kind="project", title="Oracle",
+                  url="https://jobs.example.org/apply?id=7&src=resume#top")
+    )
+
+    assert r"\href{https://jobs.example.org/apply?id=7\&src=resume\#top}" in rendered
+
+
+def test_a_url_percent_encodes_the_characters_tex_cannot_hand_through():
+    """`\{` reaches hyperref as a backslash and a brace, so the link it makes
+    is an address that does not exist. The percent form survives, the way the
+    backslash already does."""
+    rendered = render(placement(kind="project", title="Oracle", url=r"https://ex.com/{a}\b"))
+
+    assert r"\href{https://ex.com/\%7Ba\%7D\%5Cb}" in rendered
 
 
 # ------------------------------------------------------- layout off the registry
@@ -140,21 +161,37 @@ def test_an_inline_row_carries_an_item_because_its_wrapper_is_an_itemize():
     assert item_index < rendered.index(r"\textbf{Tools}")
 
 
-def test_every_kind_in_the_registry_renders_through_its_own_registry_row():
-    """The registry is the only place that says which macro a kind uses. A kind
-    added there with no layout support would otherwise surface as a KeyError in
-    front of a user rather than here."""
-    expected = {
-        "subheading": r"\resumeSubheading",
-        "project": r"\resumeProjectHeading",
-        "plain": r"\resumeProjectHeading",
-    }
-    for kind, layout in bank.ENTRY_KINDS.items():
-        rendered = render(placement(kind=kind, bullets=bullets("Did the thing")))
-        if layout.bullet_style == "inline":
+# What each kind has to print, spelled out rather than read back off
+# `ENTRY_KINDS`. A loop that asks the registry what to expect agrees with the
+# registry whatever the registry says, including a row that is wrong. The
+# detail is what separates `plain` from `project`: both reach for
+# `\resumeProjectHeading`, and without a detail in the fixture their output is
+# identical, so the test could not tell them apart either.
+EXPECTED_HEADING = {
+    "education": r"\resumeSubheading{Argonne National Laboratory}{Jun 2026 -- Sep 2026}{Thing}{Lemont, IL}",
+    "experience": r"\resumeSubheading{Argonne National Laboratory}{Jun 2026 -- Sep 2026}{Thing}{Lemont, IL}",
+    "project": r"\resumeProjectHeading{\textbf{Thing} $|$ \emph{Python}}{Jun 2026 -- Sep 2026}",
+    "skill_group": r"\item \small{\textbf{Thing}{: Did the thing}}",
+    "award": r"\resumeProjectHeading{\textbf{Thing}}{Jun 2026 -- Sep 2026}",
+    "publication": r"\resumeProjectHeading{\textbf{Thing}}{Jun 2026 -- Sep 2026}",
+    "presentation": r"\resumeProjectHeading{\textbf{Thing}}{Jun 2026 -- Sep 2026}",
+    "certification": r"\resumeProjectHeading{\textbf{Thing}}{Jun 2026 -- Sep 2026}",
+}
+
+INLINE_KINDS = {"skill_group"}
+
+
+def test_every_kind_prints_the_heading_its_layout_calls_for():
+    assert set(EXPECTED_HEADING) == set(bank.ENTRY_KINDS), "a new kind needs a line above"
+
+    for kind, heading in EXPECTED_HEADING.items():
+        rendered = render(
+            placement(kind=kind, title="Thing", detail="Python", bullets=bullets("Did the thing"))
+        )
+        assert heading in rendered, kind
+        if kind in INLINE_KINDS:
             assert r"\resumeItem{" not in rendered, kind
         else:
-            assert expected[layout.heading] in rendered, kind
             assert r"\resumeItem{Did the thing}" in rendered, kind
 
 
@@ -221,6 +258,17 @@ def test_the_body_replaces_the_marker_in_the_template():
     assert r"\resumeSubheading{Argonne National Laboratory}" in document
 
 
+def test_a_second_marker_does_not_print_the_resume_twice():
+    """A template someone pasted a marker into twice would otherwise carry two
+    copies of every entry. The leftover marker is a comment and prints nothing."""
+    document = resume_render.render_document(
+        "%%RESUME-BODY%%\nMIDDLE\n%%RESUME-BODY%%", body(placement())
+    )
+
+    assert document.count(r"\resumeSubheading") == 1
+    assert document.endswith("\nMIDDLE\n%%RESUME-BODY%%")
+
+
 def test_a_template_with_no_body_marker_is_refused():
     """Appending to the end instead would produce a document the user never
     asked for, in a place they did not choose."""
@@ -228,15 +276,30 @@ def test_a_template_with_no_body_marker_is_refused():
         resume_render.render_document(r"\documentclass{article}", body(placement()))
 
 
-def test_rendering_is_deterministic():
-    """The push path compares the render to what it last wrote, so a renderer
-    that reordered anything would report a hand-edit on every push."""
+def test_a_draft_renders_to_exactly_these_lines():
+    """The push path compares the render to what it last wrote, so anything the
+    renderer reorders or respaces reads as a hand edit on every push. Asserting
+    the render equals a second call cannot catch that, because a pure function
+    agrees with itself. Pinning the lines can, and it is also the only place
+    the item list wrapping the bullets is checked to be in the right place:
+    `\\resumeItem` expands to `\\item`, which is legal nowhere else."""
     draft = body(
         placement(bullets=bullets("One", "Two")),
         placement(ref="p2", kind="project", title="Delphi", detail="Rust"),
     )
 
-    assert resume_render.render_body(draft) == resume_render.render_body(draft)
+    assert resume_render.render_body(draft).split("\n") == [
+        r"\section{Experience}",
+        r"\resumeSubHeadingListStart",
+        r"\resumeSubheading{Argonne National Laboratory}{Jun 2026 -- Sep 2026}"
+        r"{Research Assistant}{Lemont, IL}",
+        r"\resumeItemListStart",
+        r"\resumeItem{One}",
+        r"\resumeItem{Two}",
+        r"\resumeItemListEnd",
+        r"\resumeProjectHeading{\textbf{Delphi} $|$ \emph{Rust}}{Jun 2026 -- Sep 2026}",
+        r"\resumeSubHeadingListEnd",
+    ]
 
 
 # ------------------------------------------------------------------ integration
@@ -288,7 +351,10 @@ COMPILABLE_BODY = {
                     kind="project",
                     title="Delphi",
                     detail="Python, PyTorch",
-                    url="https://github.com/me/delphi",
+                    # The query string is the point: `&` is the alignment tab,
+                    # and `\resumeProjectHeading` lays its argument out in a
+                    # `tabular*` exactly as the user's own resume.tex does.
+                    url="https://github.com/me/delphi?tab=readme&v=2",
                     bullets=bullets("Trained the model"),
                 ),
             ],

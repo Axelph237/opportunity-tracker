@@ -58,8 +58,14 @@ function Harness({ initial = BODY, onChange, ...props }) {
 
 function setup(props = {}) {
   const onChange = vi.fn()
-  render(<Harness onChange={onChange} {...props} />)
+  render(<Harness onChange={onChange} onPlace={vi.fn()} {...props} />)
   return onChange
+}
+
+function dropping(entry, props = {}) {
+  const onPlace = vi.fn()
+  render(<Harness onChange={vi.fn()} onPlace={onPlace} droppingEntry={entry} {...props} />)
+  return onPlace
 }
 
 const transfer = () => ({ setData: vi.fn(), getData: vi.fn(), dropEffect: '', effectAllowed: '' })
@@ -217,55 +223,33 @@ describe('DraftCanvas / reordering from the keyboard', () => {
 })
 
 describe('DraftCanvas / dropping a record in from the bank', () => {
-  it('adds it to the section it was dropped on, with its bullets copied across', () => {
-    const onChange = setup({ droppingEntry: ENTRY })
+  // What a snapshot contains is asserted against the one implementation, in
+  // backend/tests/test_api_drafts.py. Here the claim is only what the canvas
+  // asks for.
+  it('asks the server to file it under the section it was dropped on', () => {
+    const onPlace = dropping(ENTRY)
     fireEvent.drop(screen.getByDisplayValue('Experience').closest('section'), { dataTransfer: transfer() })
-
-    const added = onChange.mock.calls.at(-1)[0].sections[0].placements.at(-1)
-    expect(added).toMatchObject({ entry_id: 7, title: 'Delphi', detail: 'Rust, WASM', dates: '2026 -- Present' })
-    expect(added.bullets[0]).toMatchObject({ text: 'Shipped a WASM renderer', source_bullet_id: 21 })
+    expect(onPlace).toHaveBeenCalledWith(7, 's1')
   })
 
-  it('copies the bullet text rather than pointing back at the bank', () => {
-    // A draft that referenced the bank would silently change a resume that
-    // has already been sent, the next time the bank is edited.
-    const onChange = setup({ droppingEntry: ENTRY })
-    fireEvent.drop(screen.getByDisplayValue('Experience').closest('section'), { dataTransfer: transfer() })
-    const added = onChange.mock.calls.at(-1)[0].sections[0].placements.at(-1)
-    expect(added.bullets[0].source_text).toBe('Shipped a WASM renderer')
-    expect(added.bullets[0].ref).toEqual(expect.stringMatching(/^[0-9a-f]{32}$/))
-  })
-
-  it('adds it exactly once, not once per nested drop target', () => {
-    const onChange = setup({ droppingEntry: ENTRY })
-    fireEvent.drop(screen.getByDisplayValue('Experience').closest('section'), { dataTransfer: transfer() })
-    expect(onChange).toHaveBeenCalledTimes(1)
-    expect(onChange.mock.calls[0][0].sections[0].placements).toHaveLength(3)
-  })
-
-  it('starts the section the kind belongs in when the draft is empty', () => {
-    const onChange = setup({ initial: { sections: [] }, droppingEntry: ENTRY })
+  it('asks for no section at all when the drop missed every one of them', () => {
+    const onPlace = dropping(ENTRY, { initial: { sections: [] } })
     fireEvent.drop(screen.getByText(/drag a record over/i).closest('[aria-describedby]'), {
       dataTransfer: transfer(),
     })
-    expect(onChange.mock.calls[0][0].sections[0]).toMatchObject({ label: 'Projects', bullet_style: 'bullets' })
+    expect(onPlace).toHaveBeenCalledWith(7, null)
   })
 
-  it('renders a skill group as a comma-style row rather than a bullet list', () => {
-    const onChange = setup({
-      initial: { sections: [] },
-      droppingEntry: { ...ENTRY, kind: 'skill_group', title: 'Languages' },
-    })
-    fireEvent.drop(screen.getByText(/drag a record over/i).closest('[aria-describedby]'), {
-      dataTransfer: transfer(),
-    })
-    expect(onChange.mock.calls[0][0].sections[0]).toMatchObject({ label: 'Skills', bullet_style: 'inline' })
+  it('asks exactly once, not once per nested drop target', () => {
+    const onPlace = dropping(ENTRY)
+    fireEvent.drop(screen.getByDisplayValue('Experience').closest('section'), { dataTransfer: transfer() })
+    expect(onPlace).toHaveBeenCalledTimes(1)
   })
 
   it('ignores a drop when nothing is being dragged in from the bank', () => {
-    const onChange = setup()
+    const onPlace = dropping(undefined)
     fireEvent.drop(screen.getByDisplayValue('Experience').closest('section'), { dataTransfer: transfer() })
-    expect(onChange).not.toHaveBeenCalled()
+    expect(onPlace).not.toHaveBeenCalled()
   })
 })
 

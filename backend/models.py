@@ -735,6 +735,10 @@ class DraftPlacement(BaseModel):
 
 class DraftSection(BaseModel):
     ref: str
+    # What this section is for, and what filing an entry matches on. Fixed at
+    # the label the section was created under, so renaming the section does
+    # not make the next entry of its kind open a second one beside it.
+    key: str = ""
     label: str                      # renameable per job, e.g. "Research and Project Experience"
     bullet_style: BulletStyle = "bullets"
     placements: list[DraftPlacement] = Field(default_factory=list)
@@ -783,6 +787,15 @@ class ResumeDraftUpdate(BaseModel):
         return value.strip() if value is not None else None
 
 
+class PlaceEntry(BaseModel):
+    """Which bank record to snapshot into a draft, and where to file it."""
+
+    entry_id: int
+    # Absent files the record under the section its kind belongs to, which is
+    # what dragging it onto the canvas rather than into a section means.
+    section_ref: Optional[str] = None
+
+
 class ProposalOp(BaseModel):
     """One operation from the closed algebra a proposal may use.
 
@@ -798,7 +811,7 @@ class ProposalOp(BaseModel):
     rationale: Optional[str] = None
     entry_id: Optional[int] = None
     bullet_id: Optional[int] = None
-    section: Optional[str] = None
+    section: Optional[str] = None   # names a section by key, not by its label
     section_id: Optional[str] = None
     label: Optional[str] = None
     placement_id: Optional[str] = None
