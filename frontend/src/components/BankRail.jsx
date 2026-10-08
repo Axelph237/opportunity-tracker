@@ -22,12 +22,14 @@ function Entry({ entry, dragging, onEdit, onDragStart, onDragEnd }) {
         onDragStart(entry)
       }}
       onDragEnd={onDragEnd}
-      className={`group flex cursor-grab items-start gap-2 border-b border-outline-variant/60 px-3 py-2 transition-colors hover:bg-surface-container-high ${
-        dragging ? 'opacity-40' : ''
+      className={`group flex cursor-grab items-start gap-2 border-b border-l-2 border-b-outline-variant/60 py-2.5 pl-[10px] pr-3 transition-colors ${
+        dragging
+          ? 'border-l-primary bg-surface-container-high opacity-40'
+          : 'border-l-transparent hover:border-l-primary hover:bg-surface-container-high'
       }`}
     >
       <div className="min-w-0 flex-1">
-        <div className="line-clamp-2 text-on-surface">{entry.title}</div>
+        <div className="line-clamp-2 font-medium text-on-surface">{entry.title}</div>
         <div className="mt-0.5 flex items-center gap-2 font-mono text-data text-on-surface-variant">
           <span className="min-w-0 truncate">{caption || '—'}</span>
           {entry.bullets?.length ? <span className="shrink-0">· {entry.bullets.length}</span> : null}
@@ -120,8 +122,11 @@ export default function BankRail({
             if (!group.length) return null
             return (
               <section key={value}>
-                <h2 className="label-data sticky top-0 z-10 border-b border-outline-variant bg-surface-container px-3 py-1.5">
-                  {label}
+                <h2 className="label-data sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-outline-variant bg-surface-container-low px-3 py-1.5">
+                  <span>{label}</span>
+                  {/* Decoration. The list below already tells a screen reader
+                      how many records are in the group. */}
+                  <span aria-hidden="true">{group.length}</span>
                 </h2>
                 <ul>
                   {group.map((entry) => (
