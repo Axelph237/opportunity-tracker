@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import Applications from './pages/Applications'
+import Builder from './pages/Builder'
 import Insights from './pages/Insights'
 import Onboarding from './pages/Onboarding'
 import Opportunities from './pages/Opportunities'
@@ -20,6 +21,7 @@ const NAV = [
   { to: '/opportunities', label: 'Opportunities', icon: 'opportunities', badge: 'opportunities' },
   { to: '/applications', label: 'Applications', icon: 'applications', badge: 'applications' },
   { to: '/resumes', label: 'Resumes', icon: 'resumes', badge: 'resumes' },
+  { to: '/builder', label: 'Builder', icon: 'builder' },
   { to: '/insights', label: 'Role analysis', icon: 'insights' },
   { to: '/sources', label: 'Sources', icon: 'sources', badge: 'pending_proposals' },
   { to: '/settings', label: 'Settings', icon: 'settings' },
@@ -304,6 +306,7 @@ export default function App() {
           <Route path="/opportunities" element={<Opportunities onMutate={refreshHeader} />} />
           <Route path="/applications" element={<Applications onMutate={refreshHeader} />} />
           <Route path="/resumes" element={<Resumes onMutate={refreshHeader} />} />
+          <Route path="/builder" element={<Builder />} />
           <Route path="/insights" element={<Insights />} />
           <Route path="/sources" element={<Sources onMutate={refreshHeader} />} />
           <Route path="/settings" element={<Settings onMutate={refreshHeader} />} />
