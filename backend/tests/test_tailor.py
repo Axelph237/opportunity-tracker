@@ -52,8 +52,7 @@ def make_draft(client, **overrides) -> dict:
     return response.json()
 
 
-def answer(monkeypatch, payload, captured: dict | None = None) -> None:
-    """Put one canned Claude response behind the tailoring call."""
+def stub_claude_response(monkeypatch, payload, captured: dict | None = None) -> None:
     def _run(prompt, **_kwargs):
         if captured is not None:
             captured["prompt"] = prompt
@@ -62,8 +61,7 @@ def answer(monkeypatch, payload, captured: dict | None = None) -> None:
     monkeypatch.setattr(tailor, "run_claude", _run)
 
 
-def composed(client, monkeypatch=None) -> tuple[dict, dict, dict]:
-    """A draft holding one placed entry, with a second entry still in the bank."""
+def draft_with_one_placed_entry(client) -> tuple[dict, dict, dict]:
     placed = make_entry(client, title="Lab assistant")
     make_bullet(client, placed["id"], "Calibrated readout on a 12-qubit device")
     spare = make_entry(client, title="Teaching assistant", kind="experience")
@@ -81,17 +79,9 @@ def titles_in(body: dict) -> list[str]:
     return [p["title"] for section in body["sections"] for p in section["placements"]]
 
 
-# --------------------------------------------- the guarantee: no invented experience
-
 def test_a_hallucinated_entry_id_cannot_reach_the_draft(app_client, monkeypatch):
-    """The whole point of the feature, proved end to end.
-
-    The model asks for bank entry 999999, which nobody ever wrote. It must not
-    survive into the stored proposal, and applying everything the proposal does
-    carry must leave the draft holding only records the student actually has.
-    """
-    draft, _placed, spare = composed(app_client)
-    answer(monkeypatch, {
+    draft, _placed, spare = draft_with_one_placed_entry(app_client)
+    stub_claude_response(monkeypatch, {
         "summary": "Leading with the hardware work this advertisement asks for.",
         "operations": [
             {"op": "AddEntry", "entry_id": 999999,
@@ -112,9 +102,9 @@ def test_a_hallucinated_entry_id_cannot_reach_the_draft(app_client, monkeypatch)
 
 
 def test_a_hallucinated_bullet_id_cannot_reach_the_draft(app_client, monkeypatch):
-    draft, _placed, _spare = composed(app_client)
+    draft, _placed, _spare = draft_with_one_placed_entry(app_client)
     placement = placement_of(app_client, draft["id"])
-    answer(monkeypatch, {
+    stub_claude_response(monkeypatch, {
         "summary": "Pulling across the qubit tuning line.",
         "operations": [
             {"op": "AddBullet", "bullet_id": 4242, "placement_id": placement["ref"],
@@ -131,9 +121,7 @@ def test_a_hallucinated_bullet_id_cannot_reach_the_draft(app_client, monkeypatch
 
 
 def test_the_op_table_covers_exactly_the_operations_a_draft_can_apply():
-    """Two tables enumerate one algebra.
-
-    An operation in `drafts.OPERATIONS` with no `OP_SHAPES` row would be
+    """An operation in `drafts.OPERATIONS` with no `OP_SHAPES` row would be
     offered unvalidated; one with a row and no handler would be offered and
     then fail on apply.
     """
@@ -141,17 +129,14 @@ def test_the_op_table_covers_exactly_the_operations_a_draft_can_apply():
 
 
 def test_every_shaped_operation_names_something_that_has_to_already_exist():
-    """No row in the algebra introduces a record out of nothing."""
     for name, shape in tailor.OP_SHAPES.items():
         anchored = shape.bank_field or shape.placement or shape.section_id
         assert anchored, f"{name} names nothing the bank or the draft already holds"
 
 
-# ------------------------------------------------------------------ rejection paths
-
 def test_an_operation_with_an_unknown_type_is_dropped_and_counted(app_client, monkeypatch):
-    draft, _placed, spare = composed(app_client)
-    answer(monkeypatch, {
+    draft, _placed, spare = draft_with_one_placed_entry(app_client)
+    stub_claude_response(monkeypatch, {
         "summary": "Two changes.",
         "operations": [
             {"op": "DeleteEverything", "placement_id": "whatever"},
@@ -167,12 +152,12 @@ def test_an_operation_with_an_unknown_type_is_dropped_and_counted(app_client, mo
 def test_an_operation_naming_a_placement_this_draft_does_not_have_is_dropped(
     app_client, monkeypatch
 ):
-    draft, _placed, _spare = composed(app_client)
+    draft, _placed, _spare = draft_with_one_placed_entry(app_client)
     other = make_draft(app_client, name="For somewhere else")
     drafts.place_entry(other["id"], make_entry(app_client, title="Tutor")["id"])
     elsewhere = placement_of(app_client, other["id"])
 
-    answer(monkeypatch, {
+    stub_claude_response(monkeypatch, {
         "summary": "One change.",
         "operations": [{"op": "DropEntry", "placement_id": elsewhere["ref"]}],
     })
@@ -185,9 +170,9 @@ def test_an_operation_naming_a_placement_this_draft_does_not_have_is_dropped(
 
 
 def test_a_rewrite_longer_than_a_bullet_is_dropped(app_client, monkeypatch):
-    draft, _placed, spare = composed(app_client)
+    draft, _placed, spare = draft_with_one_placed_entry(app_client)
     placement = placement_of(app_client, draft["id"])
-    answer(monkeypatch, {
+    stub_claude_response(monkeypatch, {
         "summary": "One good change and one essay.",
         "operations": [
             {"op": "RewriteBullet", "placement_id": placement["ref"],
@@ -202,9 +187,9 @@ def test_a_rewrite_longer_than_a_bullet_is_dropped(app_client, monkeypatch):
 
 
 def test_a_rewrite_with_no_text_is_dropped(app_client, monkeypatch):
-    draft, _placed, spare = composed(app_client)
+    draft, _placed, spare = draft_with_one_placed_entry(app_client)
     placement = placement_of(app_client, draft["id"])
-    answer(monkeypatch, {
+    stub_claude_response(monkeypatch, {
         "operations": [
             {"op": "RewriteBullet", "placement_id": placement["ref"],
              "bullet_ref": placement["bullets"][0]["ref"], "text": "   "},
@@ -217,8 +202,8 @@ def test_a_rewrite_with_no_text_is_dropped(app_client, monkeypatch):
 
 
 def test_a_rename_naming_a_section_this_draft_does_not_have_is_dropped(app_client, monkeypatch):
-    draft, _placed, spare = composed(app_client)
-    answer(monkeypatch, {
+    draft, _placed, spare = draft_with_one_placed_entry(app_client)
+    stub_claude_response(monkeypatch, {
         "operations": [
             {"op": "RenameSection", "section_id": "not-a-ref", "label": "Research Experience"},
             {"op": "AddEntry", "entry_id": spare["id"]},
@@ -232,9 +217,8 @@ def test_a_rename_naming_a_section_this_draft_does_not_have_is_dropped(app_clien
 def test_a_response_whose_every_operation_is_invalid_is_a_502_not_an_empty_proposal(
     app_client, monkeypatch
 ):
-    """An empty proposal would read as "nothing here needs improving"."""
-    draft, _placed, _spare = composed(app_client)
-    answer(monkeypatch, {
+    draft, _placed, _spare = draft_with_one_placed_entry(app_client)
+    stub_claude_response(monkeypatch, {
         "summary": "Added their CERN internship.",
         "operations": [
             {"op": "AddEntry", "entry_id": 777},
@@ -250,20 +234,18 @@ def test_a_response_whose_every_operation_is_invalid_is_a_502_not_an_empty_propo
 
 
 def test_a_response_suggesting_nothing_at_all_is_a_502(app_client, monkeypatch):
-    draft, _placed, _spare = composed(app_client)
-    answer(monkeypatch, {"summary": "It already reads well.", "operations": []})
+    draft, _placed, _spare = draft_with_one_placed_entry(app_client)
+    stub_claude_response(monkeypatch, {"summary": "It already reads well.", "operations": []})
 
     response = app_client.post(f"/api/drafts/{draft['id']}/tailor")
     assert response.status_code == 502
     assert "did not suggest any changes" in response.json()["detail"]
 
 
-# ----------------------------------------------------------------- the happy path
-
 def test_a_well_formed_response_becomes_a_pending_proposal(app_client, monkeypatch):
-    draft, _placed, spare = composed(app_client)
+    draft, _placed, spare = draft_with_one_placed_entry(app_client)
     placement = placement_of(app_client, draft["id"])
-    answer(monkeypatch, {
+    stub_claude_response(monkeypatch, {
         "summary": "Led with the calibration work and mirrored the advertisement's verbs.",
         "operations": [
             {"op": "RewriteBullet", "placement_id": placement["ref"],
@@ -287,10 +269,10 @@ def test_a_well_formed_response_becomes_a_pending_proposal(app_client, monkeypat
 
 
 def test_the_draft_is_untouched_until_the_proposal_is_applied(app_client, monkeypatch):
-    draft, _placed, _spare = composed(app_client)
+    draft, _placed, _spare = draft_with_one_placed_entry(app_client)
     placement = placement_of(app_client, draft["id"])
     before = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]
-    answer(monkeypatch, {
+    stub_claude_response(monkeypatch, {
         "operations": [
             {"op": "RewriteBullet", "placement_id": placement["ref"],
              "bullet_ref": placement["bullets"][0]["ref"],
@@ -309,8 +291,8 @@ def test_the_draft_is_untouched_until_the_proposal_is_applied(app_client, monkey
 
 
 def test_an_operation_the_user_rejected_is_not_applied(app_client, monkeypatch):
-    draft, _placed, spare = composed(app_client)
-    answer(monkeypatch, {"operations": [{"op": "AddEntry", "entry_id": spare["id"]}]})
+    draft, _placed, spare = draft_with_one_placed_entry(app_client)
+    stub_claude_response(monkeypatch, {"operations": [{"op": "AddEntry", "entry_id": spare["id"]}]})
     proposal = app_client.post(f"/api/drafts/{draft['id']}/tailor").json()
 
     declined = [{**op, "accepted": False} for op in proposal["operations"]]
@@ -322,7 +304,7 @@ def test_an_operation_the_user_rejected_is_not_applied(app_client, monkeypatch):
 
 
 def test_the_advertisement_and_the_bank_inventory_both_reach_the_model(app_client, monkeypatch):
-    draft, placed, spare = composed(app_client)
+    draft, placed, spare = draft_with_one_placed_entry(app_client)
     with database.get_db() as conn:
         conn.execute(
             "UPDATE job_posts SET keywords = ?",
@@ -330,7 +312,7 @@ def test_the_advertisement_and_the_bank_inventory_both_reach_the_model(app_clien
                           "variants": []}]),),
         )
     captured: dict = {}
-    answer(monkeypatch, {"operations": [{"op": "AddEntry", "entry_id": spare["id"]}]}, captured)
+    stub_claude_response(monkeypatch, {"operations": [{"op": "AddEntry", "entry_id": spare["id"]}]}, captured)
 
     app_client.post(f"/api/drafts/{draft['id']}/tailor")
 
@@ -343,11 +325,9 @@ def test_the_advertisement_and_the_bank_inventory_both_reach_the_model(app_clien
     assert placement_of(app_client, draft["id"])["ref"] in prompt
 
 
-# --------------------------------------------------------------- upstream failures
-
 def test_a_non_json_response_is_a_502_rather_than_a_500(app_client, monkeypatch):
-    draft, _placed, _spare = composed(app_client)
-    answer(monkeypatch, "I am afraid I cannot help with that.")
+    draft, _placed, _spare = draft_with_one_placed_entry(app_client)
+    stub_claude_response(monkeypatch, "I am afraid I cannot help with that.")
 
     response = app_client.post(f"/api/drafts/{draft['id']}/tailor")
     assert response.status_code == 502
@@ -356,15 +336,15 @@ def test_a_non_json_response_is_a_502_rather_than_a_500(app_client, monkeypatch)
 
 @pytest.mark.parametrize("body", ["[]", "3", '{"operations": "soon"}', "null"])
 def test_a_shapeless_response_is_a_502_rather_than_a_500(app_client, monkeypatch, body):
-    draft, _placed, _spare = composed(app_client)
-    answer(monkeypatch, body)
+    draft, _placed, _spare = draft_with_one_placed_entry(app_client)
+    stub_claude_response(monkeypatch, body)
 
     assert app_client.post(f"/api/drafts/{draft['id']}/tailor").status_code == 502
 
 
 def test_a_bare_array_of_operations_is_read_as_the_operations(app_client, monkeypatch):
-    draft, _placed, spare = composed(app_client)
-    answer(monkeypatch, [{"op": "AddEntry", "entry_id": spare["id"]}])
+    draft, _placed, spare = draft_with_one_placed_entry(app_client)
+    stub_claude_response(monkeypatch, [{"op": "AddEntry", "entry_id": spare["id"]}])
 
     proposal = app_client.post(f"/api/drafts/{draft['id']}/tailor").json()
     assert [op["entry_id"] for op in proposal["operations"]] == [spare["id"]]
@@ -372,7 +352,7 @@ def test_a_bare_array_of_operations_is_read_as_the_operations(app_client, monkey
 
 
 def test_claude_being_unavailable_is_a_503(app_client, monkeypatch):
-    draft, _placed, _spare = composed(app_client)
+    draft, _placed, _spare = draft_with_one_placed_entry(app_client)
 
     def _unavailable(*_args, **_kwargs):
         raise ClaudeUnavailable("claude is not installed")
@@ -385,7 +365,7 @@ def test_claude_being_unavailable_is_a_503(app_client, monkeypatch):
 
 
 def test_a_failed_claude_call_is_a_502(app_client, monkeypatch):
-    draft, _placed, _spare = composed(app_client)
+    draft, _placed, _spare = draft_with_one_placed_entry(app_client)
 
     def _failed(*_args, **_kwargs):
         raise ClaudeCallError("exit 1")
@@ -394,8 +374,6 @@ def test_a_failed_claude_call_is_a_502(app_client, monkeypatch):
 
     assert app_client.post(f"/api/drafts/{draft['id']}/tailor").status_code == 502
 
-
-# ------------------------------------------------------------------ preconditions
 
 def test_tailoring_an_unknown_draft_is_a_404(app_client):
     assert app_client.post("/api/drafts/9999/tailor").status_code == 404
@@ -426,10 +404,7 @@ def test_an_empty_bank_and_an_empty_draft_is_a_400(app_client):
     assert "Import a resume into the bank first" in response.json()["detail"]
 
 
-# ------------------------------------------------------------------- the normalizer
-
 def test_a_json_true_does_not_become_bank_entry_one():
-    """`isinstance(True, int)` is the one wrong id that would pass validation."""
     assert tailor._normalize_op({"op": "AddEntry", "entry_id": True})["entry_id"] is None
 
 
@@ -439,7 +414,6 @@ def test_the_words_a_model_uses_for_absence_normalize_to_absence(value):
 
 
 def test_an_operation_that_is_not_an_object_still_counts_as_a_dropped_one():
-    """Dropping it here would make the discard count the user sees too small."""
     ops = tailor._normalize_ops([{"op": "DropEntry"}, "AddEntry", None, 7])
     assert len(ops) == 4
     assert [op["op"] for op in ops] == ["DropEntry", "", "", ""]
@@ -465,7 +439,6 @@ def test_a_normalized_op_carries_exactly_the_fields_the_apply_path_reads():
 
 
 def test_the_bank_inventory_is_cut_on_whole_lines():
-    """Half an inventory line invites a half-guessed id."""
     entries = [
         {"id": n, "kind": "experience", "title": "Record " + "x" * 200, "bullets": []}
         for n in range(1, 200)
@@ -475,8 +448,6 @@ def test_the_bank_inventory_is_cut_on_whole_lines():
     assert len(block) <= tailor.MAX_BANK_CHARS
     assert all(line.startswith("Entry ") for line in block.split("\n"))
 
-
-# ------------------------------------------------------------------- bank import
 
 RESUME = """Jane Doe
 Lab Assistant, Argonne National Laboratory, Lemont IL, Jun 2026 - Sep 2026
@@ -494,7 +465,7 @@ IMPORTED = {
 
 
 def test_importing_a_resume_returns_a_preview_and_writes_nothing(app_client, monkeypatch):
-    answer(monkeypatch, IMPORTED)
+    stub_claude_response(monkeypatch, IMPORTED)
 
     response = app_client.post("/api/bank/import", json={"text": RESUME})
     assert response.status_code == 200, response.text
@@ -508,14 +479,14 @@ def test_importing_a_resume_returns_a_preview_and_writes_nothing(app_client, mon
 
 
 def test_an_imported_kind_the_registry_does_not_know_snaps_to_experience(app_client, monkeypatch):
-    answer(monkeypatch, {"entries": [{"kind": "Volunteer Work", "title": "Food bank"}]})
+    stub_claude_response(monkeypatch, {"entries": [{"kind": "Volunteer Work", "title": "Food bank"}]})
 
     entries = app_client.post("/api/bank/import", json={"text": RESUME}).json()["entries"]
     assert entries[0]["kind"] == "experience"
 
 
 def test_an_imported_kind_the_registry_spells_differently_is_recovered(app_client, monkeypatch):
-    answer(monkeypatch, {"entries": [{"kind": "Skill Group", "title": "Languages",
+    stub_claude_response(monkeypatch, {"entries": [{"kind": "Skill Group", "title": "Languages",
                                       "bullets": ["Python", "C++"]}]})
 
     entries = app_client.post("/api/bank/import", json={"text": RESUME}).json()["entries"]
@@ -524,7 +495,7 @@ def test_an_imported_kind_the_registry_spells_differently_is_recovered(app_clien
 
 
 def test_an_imported_record_with_no_title_is_skipped(app_client, monkeypatch):
-    answer(monkeypatch, {"entries": [{"kind": "experience", "title": "  "},
+    stub_claude_response(monkeypatch, {"entries": [{"kind": "experience", "title": "  "},
                                      {"kind": "project", "title": "Delphi"}]})
 
     entries = app_client.post("/api/bank/import", json={"text": RESUME}).json()["entries"]
@@ -546,7 +517,7 @@ def test_importing_a_non_string_is_a_400_rather_than_a_500(app_client):
 
 
 def test_a_resume_nothing_can_be_read_out_of_is_a_502(app_client, monkeypatch):
-    answer(monkeypatch, {"entries": []})
+    stub_claude_response(monkeypatch, {"entries": []})
 
     response = app_client.post("/api/bank/import", json={"text": RESUME})
     assert response.status_code == 502
@@ -554,7 +525,7 @@ def test_a_resume_nothing_can_be_read_out_of_is_a_502(app_client, monkeypatch):
 
 
 def test_a_non_json_import_response_is_a_502_rather_than_a_500(app_client, monkeypatch):
-    answer(monkeypatch, "Sorry, that does not look like a resume.")
+    stub_claude_response(monkeypatch, "Sorry, that does not look like a resume.")
 
     assert app_client.post("/api/bank/import", json={"text": RESUME}).status_code == 502
 
@@ -570,7 +541,7 @@ def test_claude_being_unavailable_for_an_import_is_a_503(app_client, monkeypatch
 
 def test_the_resume_text_reaches_the_model(app_client, monkeypatch):
     captured: dict = {}
-    answer(monkeypatch, IMPORTED, captured)
+    stub_claude_response(monkeypatch, IMPORTED, captured)
 
     app_client.post("/api/bank/import", json={"text": RESUME})
 

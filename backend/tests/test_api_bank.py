@@ -11,6 +11,7 @@ import database
 
 NEW_TABLES = ("bank_entries", "bank_bullets", "job_posts", "resume_drafts", "draft_proposals")
 
+
 def test_init_db_creates_the_bank_and_draft_tables(db_path):
     with database.get_db() as conn:
         names = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}

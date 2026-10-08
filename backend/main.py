@@ -1747,11 +1747,7 @@ def reorder_bank_entries(payload: BankReorder) -> list[BankEntry]:
 
 @app.post("/api/bank/import", response_model=BankImportPreview)
 def import_bank_entries(payload: Optional[dict[str, Any]] = None) -> BankImportPreview:
-    """Read an existing resume into proposed records.
-
-    A preview, not an insert. An empty bank blocks the whole builder, but
-    filling it on the user's behalf is the one thing this feature must not do.
-    """
+    """A preview, not an insert. Nothing is written until the user confirms."""
     text = (payload or {}).get("text")
     try:
         preview = tailor.import_bank_from_resume(text if isinstance(text, str) else "")
@@ -2006,9 +2002,7 @@ def push_draft(draft_id: int, force: bool = False) -> DraftPushResult:
 
 @app.post("/api/drafts/{draft_id}/tailor", response_model=DraftProposal)
 def tailor_draft(draft_id: int) -> DraftProposal:
-    """Ask the agent to rearrange this draft for the job post it targets.
-
-    The draft is untouched. What comes back is a pending proposal the user
+    """The draft is untouched. What comes back is a pending proposal the user
     accepts or rejects operation by operation.
     """
     try:
