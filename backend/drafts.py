@@ -210,6 +210,25 @@ def _section_for(body: dict, key: str, layout: KindLayout) -> dict:
 
 # ----------------------------------------------------------------- draft CRUD
 
+# The links a draft carries, and what to call the row on the other end. SQLite
+# enforces these too, but its IntegrityError names no field and reaches the
+# client as a 500, so the check lives here where the answer can say which link
+# is wrong.
+_LINKS = {
+    "job_post_id": ("job_posts", "job post"),
+    "resume_instance_id": ("resume_instances", "resume"),
+}
+
+
+def _check_links(conn: sqlite3.Connection, values: dict[str, Any]) -> None:
+    for field, (table, noun) in _LINKS.items():
+        target = values.get(field)
+        if target is None:
+            continue
+        if conn.execute(f"SELECT 1 FROM {table} WHERE id = ?", (target,)).fetchone() is None:
+            raise ValueError(f"There is no {noun} {target} to attach this draft to.")
+
+
 def list_drafts() -> list[dict[str, Any]]:
     with get_db() as conn:
         rows = conn.execute(
@@ -234,6 +253,8 @@ def create_draft(
 ) -> dict[str, Any]:
     clean = (name or "").strip()[:MAX_NAME_LENGTH] or "New draft"
     with get_db() as conn:
+        _check_links(conn, {"job_post_id": job_post_id,
+                            "resume_instance_id": resume_instance_id})
         cursor = conn.execute(
             """INSERT INTO resume_drafts (name, job_post_id, resume_instance_id, body, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?)""",
@@ -260,6 +281,7 @@ def update_draft(draft_id: int, values: dict[str, Any]) -> dict[str, Any]:
     with get_db() as conn:
         if conn.execute("SELECT 1 FROM resume_drafts WHERE id = ?", (draft_id,)).fetchone() is None:
             raise DraftNotFound(f"Draft {draft_id} not found")
+        _check_links(conn, changes)
         assignments = ", ".join(f"{column} = ?" for column in changes)
         conn.execute(
             f"UPDATE resume_drafts SET {assignments}, updated_at = ? WHERE id = ?",

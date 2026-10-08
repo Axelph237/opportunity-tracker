@@ -67,6 +67,24 @@ def test_a_new_draft_starts_with_an_empty_body(app_client):
     assert draft["pushed_latex"] is None
 
 
+def test_a_draft_cannot_be_attached_to_a_job_post_that_is_not_there(app_client):
+    """SQLite refuses the link too, but its IntegrityError names no field and
+    comes back as a 500 the user cannot act on."""
+    response = app_client.post("/api/drafts", json={"name": "For ACME", "job_post_id": 999})
+
+    assert response.status_code == 400, response.text
+    assert "job post 999" in response.json()["detail"]
+
+
+def test_a_draft_cannot_be_pointed_at_a_resume_that_is_not_there(app_client):
+    draft = make_draft(app_client)
+
+    response = app_client.patch(f"/api/drafts/{draft['id']}", json={"resume_instance_id": 999})
+
+    assert response.status_code == 400, response.text
+    assert "resume 999" in response.json()["detail"]
+
+
 def test_an_unknown_draft_is_a_404_on_every_verb(app_client):
     assert app_client.get("/api/drafts/404").status_code == 404
     assert app_client.patch("/api/drafts/404", json={"name": "x"}).status_code == 404

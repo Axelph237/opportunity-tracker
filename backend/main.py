@@ -1887,11 +1887,14 @@ def list_drafts() -> list[ResumeDraft]:
 
 @app.post("/api/drafts", response_model=ResumeDraft, status_code=201)
 def create_draft(payload: ResumeDraftCreate) -> ResumeDraft:
-    draft = drafts_module.create_draft(
-        payload.name,
-        job_post_id=payload.job_post_id,
-        resume_instance_id=payload.resume_instance_id,
-    )
+    try:
+        draft = drafts_module.create_draft(
+            payload.name,
+            job_post_id=payload.job_post_id,
+            resume_instance_id=payload.resume_instance_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ResumeDraft(**draft)
 
 
