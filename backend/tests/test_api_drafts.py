@@ -329,9 +329,13 @@ def test_a_draft_nobody_has_touched_gets_no_sync_proposal(app_client):
 
 def test_a_bullet_tailored_away_from_the_bank_is_not_reported_as_drift(app_client):
     """Drift is measured against the wording the bank had when the line was
-    placed, not against the draft's own text. A deliberate rewrite is not stale."""
+    placed, not against the draft's own text. A deliberate rewrite is not stale.
+
+    The second bullet is genuinely out of date, so a check that reported
+    nothing at all would agree with this test for the wrong reason.
+    """
     draft = make_draft(app_client)
-    entry = make_entry(app_client, bullets=["Assisted with the rig"])
+    entry = make_entry(app_client, bullets=["Assisted with the rig", "Logged the runs"])
     drafts.place_entry(draft["id"], entry["id"])
     placement = only_placement(app_client, draft["id"])
     proposal_id = make_proposal(draft["id"], [{
@@ -340,8 +344,11 @@ def test_a_bullet_tailored_away_from_the_bank_is_not_reported_as_drift(app_clien
         "bullet_id": entry["bullets"][0]["id"], "text": "Rebuilt the beamline rig",
     }])
     resolve(app_client, proposal_id)
+    app_client.patch(f"/api/bank/bullets/{entry['bullets'][1]['id']}", json={"text": "Logged 40 runs"})
 
-    assert drafts.sync_proposal(draft["id"]) is None
+    standing = drafts.sync_proposal(draft["id"])
+
+    assert [op["text"] for op in standing["operations"]] == ["Logged 40 runs"]
 
 
 def test_accepting_a_drifted_bullet_stops_it_drifting_again(app_client):
@@ -375,7 +382,7 @@ def test_undoing_the_bank_edit_withdraws_the_offer_to_sync(app_client):
     drafts.place_entry(draft["id"], entry["id"])
     bullet_id = entry["bullets"][0]["id"]
     app_client.patch(f"/api/bank/bullets/{bullet_id}", json={"text": "Rebuilt the rig"})
-    drafts.sync_proposal(draft["id"])
+    assert drafts.sync_proposal(draft["id"]) is not None
 
     app_client.patch(f"/api/bank/bullets/{bullet_id}", json={"text": "Assisted with the rig"})
 
@@ -405,6 +412,7 @@ def test_reading_the_list_twice_offers_the_same_proposal_both_times(app_client):
     first = app_client.get(f"/api/drafts/{draft['id']}/proposals").json()
     second = app_client.get(f"/api/drafts/{draft['id']}/proposals").json()
 
+    assert [p["kind"] for p in first] == ["sync"]
     assert first == second
 
 
