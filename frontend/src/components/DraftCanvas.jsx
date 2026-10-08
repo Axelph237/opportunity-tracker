@@ -1,23 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import HighlightedText from './HighlightedText'
-import { entryDates } from './BankRail'
 import { TrashIcon } from './icons'
 import { moved } from './reorder'
-
-/**
- * Where a kind lands when it is dropped on the canvas rather than on a
- * section. The same defaults the backend's layout registry prints under.
- */
-const DEFAULT_SECTION = {
-  experience: 'Experience',
-  education: 'Education',
-  project: 'Projects',
-  skill_group: 'Skills',
-  award: 'Honors',
-  publication: 'Publications',
-  presentation: 'Presentations',
-  certification: 'Certifications',
-}
 
 /**
  * uuid4 as hex, unique within the draft.
@@ -46,27 +30,6 @@ const editPlacement = (body, sectionRef, placementRef, update) =>
     ...section,
     placements: mapByRef(section.placements || [], placementRef, update),
   }))
-
-/** Snapshot a bank record into the draft. Snapshot, so a later bank edit cannot rewrite a sent resume. */
-export function placementFor(entry) {
-  return {
-    ref: newRef(),
-    entry_id: entry.id,
-    kind: entry.kind,
-    title: entry.title,
-    organization: entry.organization || null,
-    location: entry.location || null,
-    dates: entryDates(entry) || null,
-    detail: entry.detail || null,
-    url: entry.url || null,
-    bullets: (entry.bullets || []).map((bullet) => ({
-      ref: newRef(),
-      text: bullet.text,
-      source_bullet_id: bullet.id,
-      source_text: bullet.text,
-    })),
-  }
-}
 
 /**
  * Drag-to-reorder a list the server owns.
@@ -397,6 +360,7 @@ export default function DraftCanvas({
   droppingEntry,
   focusedPlacement,
   onChange,
+  onPlace,
 }) {
   const root = useRef(null)
   const sections = body?.sections || []
@@ -414,36 +378,17 @@ export default function DraftCanvas({
       ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
   }, [focusedPlacement])
 
-  /** `sectionRef` is null when the record was dropped on the canvas rather than on a section. */
+  /**
+   * `sectionRef` is null when the record was dropped on the canvas rather than
+   * on a section, which the server reads as "file it where its kind belongs".
+   *
+   * The snapshot is cut server-side. Building it here meant a second copy of
+   * the layout registry, the date formatting and the provenance rules, and
+   * the copy had already drifted: it filed an award under "Honors" where the
+   * registry says "Honors and Awards".
+   */
   const dropEntry = (sectionRef) => {
-    const entry = droppingEntry
-    if (!entry) return
-    const placement = placementFor(entry)
-    const label = DEFAULT_SECTION[entry.kind] || 'Experience'
-    const target =
-      (sectionRef && sections.find((section) => section.ref === sectionRef)) ||
-      sections.find((section) => section.label === label)
-
-    if (target) {
-      onBody((current) =>
-        editSection(current, target.ref, (section) => ({
-          ...section,
-          placements: [...(section.placements || []), placement],
-        })),
-      )
-      return
-    }
-    onBody((current) =>
-      editSections(current, (list) => [
-        ...list,
-        {
-          ref: newRef(),
-          label,
-          bullet_style: entry.kind === 'skill_group' ? 'inline' : 'bullets',
-          placements: [placement],
-        },
-      ]),
-    )
+    if (droppingEntry) onPlace(droppingEntry.id, sectionRef)
   }
 
   const addSection = () =>

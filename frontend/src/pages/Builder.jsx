@@ -244,6 +244,13 @@ export default function Builder() {
     [draft, refreshCoverage],
   )
 
+  /** Snapshotting a bank record onto the canvas is the server's call, not ours. */
+  const placeEntry = (entryId, sectionRef) =>
+    act(async () => {
+      setDraft(await api.placeDraftEntry(draft.id, { entry_id: entryId, section_ref: sectionRef }))
+      await refreshCoverage(draft.id, Boolean(draft.job_post_id))
+    })
+
   const createDraft = () =>
     act(async () => {
       const created = await api.createDraft({ name: 'New resume' })
@@ -472,6 +479,7 @@ export default function Builder() {
                 droppingEntry={draggingEntry}
                 focusedPlacement={focusedPlacement}
                 onChange={commit}
+                onPlace={placeEntry}
               />
             </div>
 

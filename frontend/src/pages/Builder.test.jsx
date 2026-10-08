@@ -17,6 +17,7 @@ vi.mock('../api', async (importOriginal) => {
       createDraft: vi.fn(),
       updateDraft: vi.fn(),
       draftCoverage: vi.fn(),
+      placeDraftEntry: vi.fn(),
       pushDraft: vi.fn(),
       tailorDraft: vi.fn(),
       resolveProposal: vi.fn(),
@@ -181,6 +182,43 @@ describe('Builder / an empty bank', () => {
     await setup({ bank: [] })
     expect(screen.getByText(/your experience bank is empty/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /import from my resume/i })).toHaveClass('btn-primary')
+  })
+})
+
+describe('Builder / placing a record from the bank', () => {
+  it('asks the server to cut the snapshot, and shows what it sent back', async () => {
+    // The snapshot is the layout registry, the date formatting and the
+    // provenance rules at once. Cutting it in the browser is a second copy of
+    // all three that nothing keeps in step with the one that renders.
+    const placed = {
+      ...DRAFT,
+      body: {
+        sections: [
+          {
+            ...BODY.sections[0],
+            placements: [
+              ...BODY.sections[0].placements,
+              { ref: 'p9', entry_id: 1, kind: 'project', title: 'Delphi', bullets: [] },
+            ],
+          },
+        ],
+      },
+    }
+    api.placeDraftEntry.mockResolvedValue(placed)
+    await setup()
+
+    const dataTransfer = transfer()
+    fireEvent.dragStart(
+      screen.getByRole('button', { name: 'Edit Research Assistant' }).closest('li'),
+      { dataTransfer },
+    )
+    fireEvent.drop(screen.getByDisplayValue('Experience').closest('section'), { dataTransfer })
+
+    await waitFor(() =>
+      expect(api.placeDraftEntry).toHaveBeenCalledWith(9, { entry_id: 1, section_ref: 's1' }),
+    )
+    expect(api.updateDraft).not.toHaveBeenCalled()
+    expect(await screen.findByText('Delphi')).toBeInTheDocument()
   })
 })
 

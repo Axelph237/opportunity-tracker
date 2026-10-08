@@ -185,6 +185,7 @@ export const api = {
   draft: (id) => get(`/drafts/${id}`),
   updateDraft: (id, body) => patch(`/drafts/${id}`, body),
   deleteDraft: (id) => del(`/drafts/${id}`),
+  placeDraftEntry: (id, body) => post(`/drafts/${id}/placements`, body),
   draftCoverage: (id) => get(`/drafts/${id}/coverage`),
   draftLatex: (id) => get(`/drafts/${id}/latex`),
   pushDraft: (id, force = false) => post(`/drafts/${id}/push${query({ force })}`),
