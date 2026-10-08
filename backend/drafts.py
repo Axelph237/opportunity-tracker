@@ -25,6 +25,7 @@ from typing import Any, Callable, Iterator, Optional
 from uuid import uuid4
 
 import bank
+import keywords
 import resume_render
 import resumes
 from bank import KindLayout
@@ -678,9 +679,7 @@ def coverage_report(draft_id: int) -> dict[str, Any]:
     if not terms:
         return {"draft_id": draft_id, "job_post_id": post_id, "covered": 0, "total": 0, "keywords": []}
 
-    import keywords as keywords_module
-
-    results = keywords_module.coverage(terms, draft_segments(draft["body"]))
+    results = keywords.coverage(terms, draft_segments(draft["body"]))
     return {
         "draft_id": draft_id,
         "job_post_id": post_id,

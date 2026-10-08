@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import sys
-import types
 
 import pytest
 
@@ -935,34 +933,6 @@ def test_a_push_that_would_change_nothing_is_not_a_conflict(app_client, resume_t
 
 # ------------------------------------------------------------------- coverage
 
-@pytest.fixture
-def fake_keywords(monkeypatch):
-    """Stand in for the pure matcher another workstream owns.
-
-    What is under test here is the segmentation and the totals this module
-    derives, not the matching rule, which has its own tests.
-    """
-    module = types.ModuleType("keywords")
-    module.seen = []
-
-    def coverage(terms, segments):
-        module.seen.append((terms, segments))
-        return [
-            {
-                "term": term["term"],
-                "bucket": term.get("bucket", "technical"),
-                "covered": any(term["term"].lower() in text.lower() for _ref, text in segments),
-                "hits": sum(text.lower().count(term["term"].lower()) for _ref, text in segments),
-                "where": [ref for ref, text in segments if term["term"].lower() in text.lower()],
-            }
-            for term in terms
-        ]
-
-    module.coverage = coverage
-    monkeypatch.setitem(sys.modules, "keywords", module)
-    return module
-
-
 def job_post(keywords: list[dict]) -> int:
     with database.get_db() as conn:
         cursor = conn.execute(
@@ -981,7 +951,7 @@ def test_a_draft_with_no_job_post_behind_it_reports_nothing_to_cover(app_client)
                       "covered": 0, "total": 0, "keywords": []}
 
 
-def test_coverage_counts_the_terms_the_draft_actually_says(app_client, fake_keywords):
+def test_coverage_counts_the_terms_the_draft_actually_says(app_client):
     post_id = job_post([{"term": "PyTorch"}, {"term": "Fortran"}])
     draft = make_draft(app_client, job_post_id=post_id)
     entry = make_entry(app_client, bullets=["Trained a PyTorch model"])
@@ -994,7 +964,7 @@ def test_coverage_counts_the_terms_the_draft_actually_says(app_client, fake_keyw
     assert [term["term"] for term in report["keywords"] if term["covered"]] == ["PyTorch"]
 
 
-def test_coverage_points_at_the_entry_carrying_each_term(app_client, fake_keywords):
+def test_coverage_points_at_the_entry_carrying_each_term(app_client):
     post_id = job_post([{"term": "PyTorch"}])
     draft = make_draft(app_client, job_post_id=post_id)
     entry = make_entry(app_client, bullets=["Trained a PyTorch model"])
@@ -1003,6 +973,20 @@ def test_coverage_points_at_the_entry_carrying_each_term(app_client, fake_keywor
     report = app_client.get(f"/api/drafts/{draft['id']}/coverage").json()
 
     assert report["keywords"][0]["where"] == [only_placement(app_client, draft["id"])["ref"]]
+
+
+def test_a_term_buried_inside_a_longer_word_does_not_count_as_covered(app_client):
+    """The report runs the real matcher, which compares whole folded tokens.
+    A substring check would read \"Collaborated\" as another mention of Lab and
+    tell the user they had said it twice."""
+    post_id = job_post([{"term": "Lab"}])
+    draft = make_draft(app_client, job_post_id=post_id)
+    entry = make_entry(app_client, title="Lab assistant", bullets=["Collaborated on the rig"])
+    drafts.place_entry(draft["id"], entry["id"])
+
+    report = app_client.get(f"/api/drafts/{draft['id']}/coverage").json()
+
+    assert report["keywords"][0]["hits"] == 1
 
 
 def test_a_term_hiding_in_a_repo_url_does_not_count_as_covered():
