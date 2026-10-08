@@ -127,6 +127,7 @@ export default function Builder() {
   const [jobPost, setJobPost] = useState(null)
   const [coverage, setCoverage] = useState([])
   const [proposal, setProposal] = useState(null)
+  const [standing, setStanding] = useState(null)
   const [importPreview, setImportPreview] = useState(null)
   const [editing, setEditing] = useState(null)
   const [draggingEntry, setDraggingEntry] = useState(null)
@@ -149,6 +150,17 @@ export default function Builder() {
   const confirm = useConfirm()
 
   const reloadBank = useCallback(async () => setBank(await api.bankEntries()), [])
+
+  /**
+   * Anything waiting on a decision, drift included.
+   *
+   * Reading the list is what runs the drift check, so a bank record reworded
+   * after this draft was composed only becomes visible once somebody asks.
+   */
+  const refreshProposals = useCallback(async (id) => {
+    const pending = (await api.draftProposals(id)).filter((row) => row.status === 'pending')
+    setStanding(pending[0] ?? null)
+  }, [])
 
   const refreshCoverage = useCallback(async (id, hasJobPost) => {
     // Nothing to measure against until an ad is attached, and asking anyway
@@ -194,6 +206,7 @@ export default function Builder() {
       setDraft(null)
       setJobPost(null)
       setCoverage([])
+      setStanding(null)
       return undefined
     }
     let cancelled = false
@@ -205,7 +218,10 @@ export default function Builder() {
         setJobPost(detail.job_post_id ? await api.jobPost(detail.job_post_id) : null)
         if (cancelled) return
         setError(null)
-        await refreshCoverage(detail.id, Boolean(detail.job_post_id))
+        await Promise.all([
+          refreshCoverage(detail.id, Boolean(detail.job_post_id)),
+          refreshProposals(detail.id),
+        ])
       } catch (err) {
         if (!cancelled) setError(err.message)
       }
@@ -213,7 +229,7 @@ export default function Builder() {
     return () => {
       cancelled = true
     }
-  }, [draftId, refreshCoverage])
+  }, [draftId, refreshCoverage, refreshProposals])
 
   const act = async (fn) => {
     setBusy(true)
@@ -301,7 +317,10 @@ export default function Builder() {
       )
       if (updated?.id) setDraft(updated)
       setProposal(null)
-      await refreshCoverage(draft.id, Boolean(draft.job_post_id))
+      await Promise.all([
+        refreshCoverage(draft.id, Boolean(draft.job_post_id)),
+        refreshProposals(draft.id),
+      ])
     })
 
   const runImport = async () => {
@@ -334,6 +353,8 @@ export default function Builder() {
       await syncBullets(saved.id, existing?.bullets || [], bullets)
       await reloadBank()
       setEditing(null)
+      // Rewording a record here is what puts a draft out of date with it.
+      if (draft) await refreshProposals(draft.id)
     })
 
   const deleteEntry = async () => {
@@ -397,6 +418,17 @@ export default function Builder() {
         <PlusIcon />
         New
       </button>
+      {standing ? (
+        <button
+          type="button"
+          className="btn"
+          onClick={() => setProposal(standing)}
+          title={standing.summary || 'Changes waiting on your decision'}
+        >
+          Review {standing.operations.length} change
+          {standing.operations.length === 1 ? '' : 's'}
+        </button>
+      ) : null}
       {draft ? (
         <button
           type="button"

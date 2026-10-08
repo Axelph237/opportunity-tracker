@@ -20,6 +20,7 @@ vi.mock('../api', async (importOriginal) => {
       placeDraftEntry: vi.fn(),
       pushDraft: vi.fn(),
       tailorDraft: vi.fn(),
+      draftProposals: vi.fn(),
       resolveProposal: vi.fn(),
       bankEntries: vi.fn(),
       createBankEntry: vi.fn(),
@@ -97,12 +98,13 @@ const coverageOf = (covered) => ({
   ],
 })
 
-async function setup({ drafts = [DRAFT], draft = DRAFT, bank = BANK, jobPost = JOB_POST, coverage } = {}) {
+async function setup({ drafts = [DRAFT], draft = DRAFT, bank = BANK, jobPost = JOB_POST, coverage, proposals = [] } = {}) {
   api.drafts.mockResolvedValue(drafts)
   api.bankEntries.mockResolvedValue(bank)
   api.draft.mockResolvedValue(draft)
   api.jobPost.mockResolvedValue(jobPost)
   api.draftCoverage.mockResolvedValue(coverage ?? coverageOf(false))
+  api.draftProposals.mockResolvedValue(proposals)
   api.updateDraft.mockImplementation(async (id, patch) => ({ ...draft, ...patch }))
 
   render(
@@ -405,6 +407,60 @@ describe('Builder / tailoring', () => {
 
     await waitFor(() =>
       expect(api.resolveProposal).toHaveBeenCalledWith(3, { action: 'dismiss' }),
+    )
+  })
+})
+
+describe('Builder / drift waiting on a decision', () => {
+  // Reading the proposal list is what runs the drift check, so a page that
+  // never reads it never tells the user their bank has moved on.
+  const SYNC = {
+    id: 12,
+    kind: 'sync',
+    status: 'pending',
+    summary: '1 bullet changed in the bank since this draft was composed.',
+    operations: [
+      {
+        op: 'RewriteBullet',
+        accepted: true,
+        placement_id: 'p1',
+        bullet_ref: 'b1',
+        bullet_id: 11,
+        text: 'Rebuilt the DAQ pipeline',
+      },
+    ],
+  }
+
+  it('offers the standing proposal the server is holding', async () => {
+    await setup({ proposals: [SYNC] })
+    expect(api.draftProposals).toHaveBeenCalledWith(9)
+    expect(screen.getByRole('button', { name: 'Review 1 change' })).toBeInTheDocument()
+  })
+
+  it('says nothing when the draft is up to date with the bank', async () => {
+    await setup()
+    expect(screen.queryByRole('button', { name: /review \d+ change/i })).not.toBeInTheDocument()
+  })
+
+  it('opens it for review and applies the id the list handed out', async () => {
+    const user = userEvent.setup()
+    api.resolveProposal.mockResolvedValue({ ...DRAFT })
+    await setup({ proposals: [SYNC] })
+
+    await user.click(screen.getByRole('button', { name: 'Review 1 change' }))
+    const panel = await screen.findByRole('dialog')
+    expect(within(panel).getByText(/your bank has moved on/i)).toBeInTheDocument()
+    api.draftProposals.mockResolvedValue([])
+    await user.click(within(panel).getByRole('button', { name: /apply 1 of 1/i }))
+
+    await waitFor(() =>
+      expect(api.resolveProposal).toHaveBeenCalledWith(12, {
+        action: 'apply',
+        operations: [{ ...SYNC.operations[0], accepted: true }],
+      }),
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /review \d+ change/i })).not.toBeInTheDocument(),
     )
   })
 })
