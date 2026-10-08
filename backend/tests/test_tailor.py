@@ -8,11 +8,13 @@ can end up in a stored draft.
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 
 import pytest
 
 import database
 import drafts
+import models
 import tailor
 from claude_cli import ClaudeCallError, ClaudeUnavailable
 
@@ -67,7 +69,8 @@ def draft_with_one_placed_entry(client) -> tuple[dict, dict, dict]:
     spare = make_entry(client, title="Teaching assistant", kind="experience")
     draft = make_draft(client)
     drafts.place_entry(draft["id"], placed["id"])
-    return draft, placed, spare
+    # Re-read, so the returned entry carries the bullet just added to it.
+    return draft, client.get(f"/api/bank/entries/{placed['id']}").json(), spare
 
 
 def placement_of(client, draft_id: int) -> dict:
@@ -126,12 +129,35 @@ def test_the_op_table_covers_exactly_the_operations_a_draft_can_apply():
     then fail on apply.
     """
     assert set(tailor.OP_SHAPES) == set(drafts.OPERATIONS)
+    assert {
+        name: shape.bank_field
+        for name, shape in tailor.OP_SHAPES.items()
+        if shape.bank_field
+    } == drafts.REQUIRED_BANK_REF
 
 
-def test_every_shaped_operation_names_something_that_has_to_already_exist():
-    for name, shape in tailor.OP_SHAPES.items():
-        anchored = shape.bank_field or shape.placement or shape.section_id
-        assert anchored, f"{name} names nothing the bank or the draft already holds"
+EXPECTED_ALGEBRA = {
+    "AddEntry": {"bank_field", "section_label"},
+    "DropEntry": {"placement"},
+    "MoveEntry": {"placement"},
+    "RenameSection": {"section_id", "label"},
+    "AddBullet": {"bank_field", "placement", "same_entry"},
+    "DropBullet": {"placement", "bullet_ref"},
+    "MoveBullet": {"placement", "bullet_ref"},
+    "RewriteBullet": {"placement", "bullet_ref", "text"},
+}
+
+
+def test_the_algebra_requires_exactly_these_anchors():
+    """Pinned whole rather than sampled.
+
+    Asserting only that each row names *something* let four rows quietly drop
+    their second anchor with the suite still green.
+    """
+    assert {
+        name: {field for field, required in asdict(shape).items() if required}
+        for name, shape in tailor.OP_SHAPES.items()
+    } == EXPECTED_ALGEBRA
 
 
 def test_an_operation_with_an_unknown_type_is_dropped_and_counted(app_client, monkeypatch):
@@ -252,7 +278,7 @@ def test_a_well_formed_response_becomes_a_pending_proposal(app_client, monkeypat
              "bullet_ref": placement["bullets"][0]["ref"],
              "text": "Characterized readout on a 12-qubit device",
              "rationale": "the ad asks for characterization"},
-            {"op": "AddEntry", "entry_id": spare["id"], "section": "Research Experience",
+            {"op": "AddEntry", "entry_id": spare["id"], "section": "Experience",
              "position": 0, "rationale": "teaching shows the communication they ask for"},
         ],
     })
@@ -434,8 +460,7 @@ def test_no_more_than_the_op_cap_is_ever_considered():
 
 def test_a_normalized_op_carries_exactly_the_fields_the_apply_path_reads():
     op = tailor._normalize_op({"op": "AddEntry", "entry_id": 1})
-    assert set(op) == {"op", "accepted", "rationale", "entry_id", "bullet_id", "section",
-                       "section_id", "label", "placement_id", "bullet_ref", "position", "text"}
+    assert set(op) == set(models.ProposalOp.model_fields)
 
 
 def test_the_bank_inventory_is_cut_on_whole_lines():
@@ -546,3 +571,155 @@ def test_the_resume_text_reaches_the_model(app_client, monkeypatch):
     app_client.post("/api/bank/import", json={"text": RESUME})
 
     assert "Calibrated readout on a 12-qubit device" in captured["prompt"]
+
+
+def test_a_bullet_cannot_be_grafted_onto_an_entry_it_is_not_part_of(app_client, monkeypatch):
+    """Real experience under the wrong employer is still a false resume line."""
+    draft, _placed, spare = draft_with_one_placed_entry(app_client)
+    elsewhere = make_bullet(app_client, spare["id"], "Supervised a team of 12 across three shifts")
+    placement = placement_of(app_client, draft["id"])
+    stub_claude_response(monkeypatch, {
+        "operations": [
+            {"op": "AddBullet", "bullet_id": elsewhere["id"], "placement_id": placement["ref"]},
+        ],
+    })
+
+    assert app_client.post(f"/api/drafts/{draft['id']}/tailor").status_code == 502
+    body = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]
+    assert [b["text"] for b in body["sections"][0]["placements"][0]["bullets"]] == [
+        "Calibrated readout on a 12-qubit device"
+    ]
+
+
+def test_an_add_entry_cannot_invent_a_section_heading(app_client, monkeypatch):
+    """`section` reaches `_section_for`, which creates the heading if it is new.
+
+    Retitling a section is `RenameSection`, which the user reviews as its own
+    operation rather than as a side effect of placing a record.
+    """
+    draft, _placed, spare = draft_with_one_placed_entry(app_client)
+    stub_claude_response(monkeypatch, {
+        "operations": [
+            {"op": "AddEntry", "entry_id": spare["id"],
+             "section": "Peer-Reviewed Publications in Nature",
+             "rationale": "teaching shows the communication they ask for"},
+        ],
+    })
+
+    assert app_client.post(f"/api/drafts/{draft['id']}/tailor").status_code == 502
+
+
+def test_an_add_entry_may_name_a_section_the_resume_already_has(app_client, monkeypatch):
+    draft, _placed, spare = draft_with_one_placed_entry(app_client)
+    stub_claude_response(monkeypatch, {
+        "operations": [{"op": "AddEntry", "entry_id": spare["id"], "section": "Experience"}],
+    })
+
+    proposal = app_client.post(f"/api/drafts/{draft['id']}/tailor").json()
+    applied = app_client.post(
+        f"/api/proposals/{proposal['id']}/resolve", json={"action": "apply"}
+    ).json()
+    assert [s["label"] for s in applied["body"]["sections"]] == ["Experience"]
+
+
+def test_an_add_bullet_naming_another_drafts_placement_is_dropped(app_client, monkeypatch):
+    draft, placed, _spare = draft_with_one_placed_entry(app_client)
+    other = make_draft(app_client, name="Elsewhere")
+    drafts.place_entry(other["id"], placed["id"])
+    elsewhere = placement_of(app_client, other["id"])
+    stub_claude_response(monkeypatch, {
+        "operations": [
+            {"op": "AddBullet", "bullet_id": placed["bullets"][0]["id"],
+             "placement_id": elsewhere["ref"]},
+        ],
+    })
+
+    assert app_client.post(f"/api/drafts/{draft['id']}/tailor").status_code == 502
+
+
+@pytest.mark.parametrize("op", ["DropBullet", "MoveBullet", "RewriteBullet"])
+def test_a_bullet_ref_from_a_different_placement_is_dropped(app_client, monkeypatch, op):
+    draft, placed, _spare = draft_with_one_placed_entry(app_client)
+    drafts.place_entry(draft["id"], placed["id"])
+    body = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]
+    first, second = body["sections"][0]["placements"]
+    stub_claude_response(monkeypatch, {
+        "operations": [
+            {"op": op, "placement_id": first["ref"], "bullet_ref": second["bullets"][0]["ref"],
+             "text": "Characterized readout on a 12-qubit device"},
+        ],
+    })
+
+    assert app_client.post(f"/api/drafts/{draft['id']}/tailor").status_code == 502
+
+
+def test_a_stray_bank_id_on_an_operation_that_never_reads_one_is_stripped(
+    app_client, monkeypatch
+):
+    """The prompt lists `entry_id` for every operation and asks for null on the
+    rest. Left in place, it would be stored unvalidated and then make
+    `drafts._check_bank_refs` refuse the whole proposal rather than one field.
+    """
+    draft, _placed, _spare = draft_with_one_placed_entry(app_client)
+    placement = placement_of(app_client, draft["id"])
+    stub_claude_response(monkeypatch, {
+        "operations": [
+            {"op": "DropEntry", "placement_id": placement["ref"], "entry_id": 999999,
+             "section": "Peer-Reviewed Publications in Nature"},
+        ],
+    })
+
+    proposal = app_client.post(f"/api/drafts/{draft['id']}/tailor").json()
+    assert proposal["operations"][0]["entry_id"] is None
+    assert proposal["operations"][0]["section"] is None
+
+    applied = app_client.post(
+        f"/api/proposals/{proposal['id']}/resolve", json={"action": "apply"}
+    )
+    assert applied.status_code == 200, applied.text
+    assert titles_in(applied.json()["body"]) == []
+
+
+@pytest.mark.parametrize("literal", ["1e400", "Infinity", "-Infinity", "1e999"])
+def test_an_overflowing_id_is_a_502_rather_than_a_500(app_client, monkeypatch, literal):
+    """`json.loads` accepts these and `int()` answers them with OverflowError."""
+    draft, _placed, _spare = draft_with_one_placed_entry(app_client)
+    stub_claude_response(
+        monkeypatch, '{"operations": [{"op": "AddEntry", "entry_id": %s}]}' % literal
+    )
+
+    assert app_client.post(f"/api/drafts/{draft['id']}/tailor").status_code == 502
+
+
+def test_an_overflowing_position_is_a_502_rather_than_a_500(app_client, monkeypatch):
+    draft, _placed, _spare = draft_with_one_placed_entry(app_client)
+    stub_claude_response(
+        monkeypatch, '{"operations": [{"op": "MoveEntry", "position": 1e400}]}'
+    )
+
+    assert app_client.post(f"/api/drafts/{draft['id']}/tailor").status_code == 502
+
+
+def test_a_rationale_longer_than_the_cap_is_truncated():
+    op = tailor._normalize_op({"op": "DropEntry", "rationale": "x" * 9000})
+    assert len(op["rationale"]) == tailor.MAX_RATIONALE_CHARS
+
+
+def test_an_import_takes_no_more_than_the_entry_and_bullet_caps():
+    data = {"entries": [{"kind": "experience", "title": f"Role {n}",
+                         "bullets": [f"did {i}" for i in range(50)]}
+                        for n in range(tailor.MAX_IMPORT_ENTRIES + 5)]}
+    entries = tailor._normalize_entries(data)
+
+    assert len(entries) == tailor.MAX_IMPORT_ENTRIES
+    assert len(entries[0]["bullets"]) == tailor.MAX_IMPORT_BULLETS
+
+
+def test_a_runaway_rewrite_is_bounded_well_above_the_bullet_cap():
+    """`_rejection` compares the normalized length, so the raw cap has to sit
+    above the bullet cap or rejection would silently become truncation.
+    """
+    assert tailor.MAX_RAW_TEXT_CHARS > tailor.MAX_BULLET_CHARS
+    assert len(tailor._normalize_op({"op": "RewriteBullet", "text": "x" * 99999})["text"]) == (
+        tailor.MAX_RAW_TEXT_CHARS
+    )

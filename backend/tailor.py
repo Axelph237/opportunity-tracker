@@ -137,19 +137,24 @@ class OpShape:
     bank_field: Optional[BankField] = None
     placement: bool = False
     bullet_ref: bool = False
+    same_entry: bool = False
     section_id: bool = False
+    section_label: bool = False
     label: bool = False
     text: bool = False
 
 
 # This gate runs when the proposal is built; `drafts._check_bank_refs` runs
 # again when the user accepts it, because the bank can change in between.
+# Both close the set of records an operation may name. Neither can tell whether
+# a RewriteBullet's wording is supported by the bullet it rewrites, which rests
+# on the prompt and on the user reading each rationale.
 OP_SHAPES: dict[str, OpShape] = {
-    "AddEntry": OpShape(bank_field="entry_id"),
+    "AddEntry": OpShape(bank_field="entry_id", section_label=True),
     "DropEntry": OpShape(placement=True),
     "MoveEntry": OpShape(placement=True),
     "RenameSection": OpShape(section_id=True, label=True),
-    "AddBullet": OpShape(bank_field="bullet_id", placement=True),
+    "AddBullet": OpShape(bank_field="bullet_id", placement=True, same_entry=True),
     "DropBullet": OpShape(placement=True, bullet_ref=True),
     "MoveBullet": OpShape(placement=True, bullet_ref=True),
     "RewriteBullet": OpShape(placement=True, bullet_ref=True, text=True),
@@ -158,24 +163,34 @@ OP_SHAPES: dict[str, OpShape] = {
 
 @dataclass(frozen=True)
 class Anchors:
-    """Every id and ref an operation is allowed to name, for one draft."""
+    """Every id, ref and label an operation is allowed to name, for one draft."""
 
     bank: dict[BankField, frozenset[int]]
+    entry_of_bullet: dict[int, int]
     sections: frozenset[str]
+    section_labels: frozenset[str]
     bullet_refs_by_placement: dict[str, frozenset[str]]
+    entry_of_placement: dict[str, Optional[int]]
 
 
 def _anchors(entries: list[dict[str, Any]], body: dict) -> Anchors:
     sections: set[str] = set()
+    labels = {layout.default_section for layout in bank.ENTRY_KINDS.values()}
     by_placement: dict[str, frozenset[str]] = {}
+    entry_of_placement: dict[str, Optional[int]] = {}
     for section in (body or {}).get("sections") or []:
         if section.get("ref"):
             sections.add(section["ref"])
+        if section.get("label"):
+            labels.add(section["label"])
         for placement in section.get("placements") or []:
-            if placement.get("ref"):
-                by_placement[placement["ref"]] = frozenset(
-                    b["ref"] for b in placement.get("bullets") or [] if b.get("ref")
-                )
+            ref = placement.get("ref")
+            if not ref:
+                continue
+            by_placement[ref] = frozenset(
+                b["ref"] for b in placement.get("bullets") or [] if b.get("ref")
+            )
+            entry_of_placement[ref] = placement.get("entry_id")
     return Anchors(
         bank={
             "entry_id": frozenset(entry["id"] for entry in entries),
@@ -183,8 +198,15 @@ def _anchors(entries: list[dict[str, Any]], body: dict) -> Anchors:
                 bullet["id"] for entry in entries for bullet in entry.get("bullets") or []
             ),
         },
+        entry_of_bullet={
+            bullet["id"]: entry["id"]
+            for entry in entries
+            for bullet in entry.get("bullets") or []
+        },
         sections=frozenset(sections),
+        section_labels=frozenset(labels),
         bullet_refs_by_placement=by_placement,
+        entry_of_placement=entry_of_placement,
     )
 
 
@@ -204,7 +226,9 @@ def _int(value: Any) -> Optional[int]:
         return None
     try:
         return int(value)
-    except (TypeError, ValueError):
+    # json.loads accepts bare `Infinity` and an overflowing literal like 1e400,
+    # and int() answers those with OverflowError rather than ValueError.
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
@@ -256,6 +280,12 @@ def _rejection(op: dict[str, Any], anchors: Anchors) -> Optional[str]:
         op["placement_id"], ()
     ):
         return f"{name} names bullet {op['bullet_ref']!r}, which is not in that entry"
+    if shape.same_entry and anchors.entry_of_bullet.get(op["bullet_id"]) != (
+        anchors.entry_of_placement.get(op["placement_id"])
+    ):
+        return f"{name} would put bullet {op['bullet_id']} under an entry it is not part of"
+    if shape.section_label and op["section"] and op["section"] not in anchors.section_labels:
+        return f"{name} names section {op['section']!r}, which this resume does not have"
     if shape.section_id and op["section_id"] not in anchors.sections:
         return f"{name} names section {op['section_id']!r}, which is not in this draft"
     if shape.label and not op["label"]:
@@ -268,6 +298,20 @@ def _rejection(op: dict[str, Any], anchors: Anchors) -> Optional[str]:
     return None
 
 
+def _stripped(op: dict[str, Any]) -> dict[str, Any]:
+    # The model is asked to null the fields an operation does not use and does
+    # not always. An unused bank id would be stored unvalidated, and
+    # `drafts._check_bank_refs` then refuses the whole proposal over a field
+    # the operation never reads.
+    shape = OP_SHAPES[op["op"]]
+    for field in ("entry_id", "bullet_id"):
+        if shape.bank_field != field:
+            op[field] = None
+    if not shape.section_label:
+        op["section"] = None
+    return op
+
+
 def _validate_ops(
     ops: list[dict[str, Any]], anchors: Anchors
 ) -> tuple[list[dict[str, Any]], list[str]]:
@@ -276,7 +320,7 @@ def _validate_ops(
     for op in ops:
         reason = _rejection(op, anchors)
         if reason is None:
-            kept.append(op)
+            kept.append(_stripped(op))
         else:
             rejected.append(reason)
     return kept, rejected
