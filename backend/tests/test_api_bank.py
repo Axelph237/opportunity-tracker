@@ -11,15 +11,6 @@ import database
 
 NEW_TABLES = ("bank_entries", "bank_bullets", "job_posts", "resume_drafts", "draft_proposals")
 
-# Endpoints the builder reserves but has not filled in yet, with a body valid
-# enough to reach the handler: a request rejected during validation would
-# answer 422 and prove nothing about whether the route is registered.
-STUBBED_ROUTES = [
-    ("POST", "/api/bank/import", {"text": "Jane Doe, University of Chicago"}),
-    ("POST", "/api/drafts/1/tailor", None),
-]
-
-
 def test_init_db_creates_the_bank_and_draft_tables(db_path):
     with database.get_db() as conn:
         names = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -118,12 +109,6 @@ def test_deleting_a_job_post_unlinks_its_drafts_rather_than_deleting_them(db_pat
         row = conn.execute("SELECT name, job_post_id FROM resume_drafts").fetchone()
     assert row["name"] == "d"
     assert row["job_post_id"] is None
-
-
-@pytest.mark.parametrize("method,path,body", STUBBED_ROUTES)
-def test_every_builder_route_is_registered_but_not_yet_implemented(app_client, method, path, body):
-    response = app_client.request(method, path, json=body)
-    assert response.status_code == 501, response.text
 
 
 def test_the_reorder_route_is_not_mistaken_for_an_entry_id(app_client):

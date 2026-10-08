@@ -25,6 +25,7 @@ import jobposts
 import latex as latex_module
 import resumes as resumes_module
 import scheduler as scheduler_module
+import tailor
 import walten as walten_module
 import source_discovery
 from classifier import STRONG_MATCH_THRESHOLD
@@ -1746,7 +1747,21 @@ def reorder_bank_entries(payload: BankReorder) -> list[BankEntry]:
 
 @app.post("/api/bank/import", response_model=BankImportPreview)
 def import_bank_entries(payload: Optional[dict[str, Any]] = None) -> BankImportPreview:
-    raise HTTPException(status_code=501, detail="not implemented")
+    """Read an existing resume into proposed records.
+
+    A preview, not an insert. An empty bank blocks the whole builder, but
+    filling it on the user's behalf is the one thing this feature must not do.
+    """
+    text = (payload or {}).get("text")
+    try:
+        preview = tailor.import_bank_from_resume(text if isinstance(text, str) else "")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except tailor.TailorError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ClaudeUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return BankImportPreview(**preview)
 
 
 @app.get("/api/bank/entries/{entry_id}", response_model=BankEntry)
@@ -1991,7 +2006,22 @@ def push_draft(draft_id: int, force: bool = False) -> DraftPushResult:
 
 @app.post("/api/drafts/{draft_id}/tailor", response_model=DraftProposal)
 def tailor_draft(draft_id: int) -> DraftProposal:
-    raise HTTPException(status_code=501, detail="not implemented")
+    """Ask the agent to rearrange this draft for the job post it targets.
+
+    The draft is untouched. What comes back is a pending proposal the user
+    accepts or rejects operation by operation.
+    """
+    try:
+        proposal = tailor.propose_tailoring(draft_id)
+    except drafts_module.DraftNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except tailor.TailorError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ClaudeUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return DraftProposal(**proposal)
 
 
 @app.get("/api/drafts/{draft_id}/proposals", response_model=list[DraftProposal])
