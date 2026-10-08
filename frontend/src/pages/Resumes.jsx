@@ -302,6 +302,38 @@ export default function Resumes({ onMutate }) {
       onMutate?.()
     })
 
+  /**
+   * Cut this resume loose from the canvas so its source can be hand-edited.
+   *
+   * Composing is lossy one way: LaTeX cannot be read back into bank records.
+   * Rather than let the two fight, which is what the refused push was, the
+   * choice is made once here and nothing is thrown away on either side.
+   */
+  const detach = async () => {
+    const confirmed = await confirm({
+      title: 'Edit this source by hand?',
+      body: (
+        <>
+          <p>
+            This resume is composed on the canvas, and every push rewrites its source. Detaching
+            stops that so you can edit it here.
+          </p>
+          <p className="mt-2 text-on-surface-variant">
+            Nothing is deleted. The canvas version stays as its own resume, still composed from
+            your bank, and this document carries on without it.
+          </p>
+        </>
+      ),
+      confirmLabel: 'Detach and edit',
+    })
+    if (!confirmed) return
+    act(async () => {
+      await api.detachDraft(instance.draft_id)
+      setInstance(await api.resumeInstance(instance.id))
+      await refreshList()
+    })
+  }
+
   const rename = (name) => {
     if (!instance || name === instance.name) return
     act(async () => {
@@ -398,6 +430,20 @@ export default function Resumes({ onMutate }) {
               </Link>
               . You can still write and save your source.
             </p>
+          </div>
+        ) : instance?.draft_id ? (
+          <div className="mb-4 flex flex-wrap items-center gap-3 rounded border border-primary/50 bg-primary/5 px-4 py-2.5">
+            <NavIcon name="builder" className="h-4 w-4 shrink-0 text-primary" />
+            <p className="min-w-0 flex-1 text-on-surface-variant">
+              Composed on the canvas. Every push rewrites this source, so it is read-only here
+              until you detach it.
+            </p>
+            <Link to={`/builder?draft=${instance.draft_id}`} className="btn">
+              Open in Builder
+            </Link>
+            <button type="button" className="btn" onClick={detach} disabled={busy}>
+              Detach and edit
+            </button>
           </div>
         ) : null
       }
@@ -534,16 +580,6 @@ export default function Resumes({ onMutate }) {
                     Use for scoring
                   </button>
                 )}
-                {instance.draft_id ? (
-                  <Link
-                    to={`/builder?draft=${instance.draft_id}`}
-                    className="btn"
-                    title="This was composed in the Builder. Open the records behind it."
-                  >
-                    <NavIcon name="builder" className="h-4 w-4" />
-                    Open in Builder
-                  </Link>
-                ) : null}
                 <button
                   type="button"
                   className="btn"
@@ -582,6 +618,9 @@ export default function Resumes({ onMutate }) {
                   editorRef={editor}
                   value={source}
                   errorLines={errorLines}
+                  // A composed resume is rewritten from the canvas on every
+                  // push, so an edit here is lost work until it is detached.
+                  readOnly={Boolean(instance.draft_id)}
                   onChange={(next) => {
                     setSource(next)
                     setDirty(true)

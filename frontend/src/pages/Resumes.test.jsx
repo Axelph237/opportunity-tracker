@@ -15,6 +15,7 @@ vi.mock('../api', async (importOriginal) => {
       ...actual.api,
       resumes: vi.fn(),
       resumeLibrary: vi.fn(),
+      detachDraft: vi.fn(),
       resumeInstance: vi.fn(),
       resumeLinks: vi.fn(),
       createResumeInstance: vi.fn(),
@@ -37,13 +38,18 @@ vi.mock('../api', async (importOriginal) => {
 // contract — value in, onChange out, goToLine/insertAtCursor on the ref — so a
 // textarea honouring that contract exercises everything this page cares about.
 vi.mock('../components/LatexEditor', () => ({
-  default: ({ value, onChange, errorLines, editorRef }) => {
+  default: ({ value, onChange, errorLines, editorRef, readOnly }) => {
     if (editorRef) {
       editorRef.current = { goToLine: vi.fn(), insertAtCursor: vi.fn() }
     }
     return (
       <div>
-        <textarea aria-label="LaTeX source" value={value} onChange={(e) => onChange(e.target.value)} />
+        <textarea
+          aria-label="LaTeX source"
+          value={value}
+          readOnly={Boolean(readOnly)}
+          onChange={(e) => onChange(e.target.value)}
+        />
         <span data-testid="error-lines">{(errorLines || []).join(',')}</span>
       </div>
     )
@@ -502,5 +508,49 @@ describe('Resumes / the rail lists every resume', () => {
     await setup({ list: [unpushed()] })
 
     expect(api.resumeInstance).not.toHaveBeenCalled()
+  })
+})
+
+describe('Resumes / a resume the canvas owns', () => {
+  const composed = () => detail({ draft_id: 5 })
+
+  it('holds the source read-only, because a push would overwrite the edit', async () => {
+    await setup({ instance: composed() })
+
+    expect(await screen.findByLabelText('LaTeX source')).toHaveAttribute('readonly')
+    expect(screen.getByText(/read-only here until you detach it/i)).toBeInTheDocument()
+  })
+
+  it('leaves a hand-written resume alone', async () => {
+    await setup({ instance: detail({ draft_id: null }) })
+
+    expect(screen.getByLabelText('LaTeX source')).not.toHaveAttribute('readonly')
+    expect(screen.queryByText(/until you detach it/i)).not.toBeInTheDocument()
+  })
+
+  it('detaches on confirm, and says nothing is lost either way', async () => {
+    const user = userEvent.setup()
+    api.detachDraft.mockResolvedValue({ id: 5 })
+    api.resumeInstance.mockResolvedValue(detail({ draft_id: null }))
+    await setup({ instance: composed() })
+
+    await user.click(screen.getByRole('button', { name: /detach and edit/i }))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(within(dialog).getByText(/nothing is deleted/i)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: /detach and edit/i }))
+
+    await waitFor(() => expect(api.detachDraft).toHaveBeenCalledWith(5))
+  })
+
+  it('writes nothing when the warning is dismissed', async () => {
+    const user = userEvent.setup()
+    await setup({ instance: composed() })
+
+    await user.click(screen.getByRole('button', { name: /detach and edit/i }))
+    const dialog = await screen.findByRole('alertdialog')
+    await user.click(within(dialog).getByRole('button', { name: /cancel/i }))
+
+    expect(api.detachDraft).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('LaTeX source')).toHaveAttribute('readonly')
   })
 })

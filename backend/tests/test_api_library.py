@@ -107,3 +107,65 @@ def test_the_sidebar_badge_counts_what_the_library_lists(app_client):
 
     assert listed == 3
     assert app_client.get("/api/stats").json()["resumes"] == listed
+
+
+# ------------------------------------------------- detaching from the canvas
+
+def test_detaching_leaves_the_document_and_keeps_the_canvas_work(app_client):
+    """Composing is lossy one way, so this choice has to be made once rather
+    than recur as a refused push. Nothing is destroyed either way."""
+    draft = push_a_draft(app_client, "Composed and pushed")
+    instance_id = app_client.get(f"/api/drafts/{draft['id']}").json()["resume_instance_id"]
+
+    response = app_client.post(f"/api/drafts/{draft['id']}/detach")
+
+    assert response.status_code == 200, response.text
+    assert app_client.get(f"/api/resumes/{instance_id}").json()["draft_id"] is None
+    assert app_client.get(f"/api/drafts/{draft['id']}").json()["resume_instance_id"] is None
+
+
+def test_a_detached_pair_is_two_resumes_because_it_now_is_two_things(app_client):
+    draft = push_a_draft(app_client, "Composed and pushed")
+
+    app_client.post(f"/api/drafts/{draft['id']}/detach")
+
+    rows = app_client.get("/api/resume-library").json()
+    assert sorted((row["composed"], row["pushed"]) for row in rows) == [(False, True), (True, False)]
+
+
+def test_a_push_after_detaching_writes_a_new_resume_rather_than_the_old_one(app_client):
+    """The whole point: the document is free of the canvas and the canvas is
+    free of the document, so neither overwrites the other again."""
+    draft = push_a_draft(app_client, "Composed and pushed")
+    first = app_client.get(f"/api/drafts/{draft['id']}").json()["resume_instance_id"]
+    app_client.post(f"/api/drafts/{draft['id']}/detach")
+
+    second = app_client.post(f"/api/drafts/{draft['id']}/push").json()["resume_instance_id"]
+
+    assert second != first
+
+
+def test_detaching_a_draft_that_was_never_pushed_is_refused(app_client):
+    draft = app_client.post("/api/drafts", json={"name": "Never pushed"}).json()
+
+    response = app_client.post(f"/api/drafts/{draft['id']}/detach")
+
+    assert response.status_code == 400
+    assert "not attached" in response.json()["detail"]
+
+
+def test_a_name_another_resume_holds_never_blocks_the_push(app_client):
+    """After a detach the old document still holds the draft's name. Letting
+    the sync fail there would make the name the thing that stops the work."""
+    draft = push_a_draft(app_client, "Composed and pushed")
+    app_client.post(f"/api/drafts/{draft['id']}/detach")
+    second = app_client.post(f"/api/drafts/{draft['id']}/push")
+
+    assert second.status_code == 200, second.text
+
+    again = app_client.post(f"/api/drafts/{draft['id']}/push")
+    assert again.status_code == 200, again.text
+    # Two resumes: the document left behind under the original name, and the
+    # one the canvas now writes to under the free name `_unique_name` picked.
+    names = sorted(row["name"] for row in app_client.get("/api/resume-library").json())
+    assert names == ["Composed and pushed", "Composed and pushed 2"]

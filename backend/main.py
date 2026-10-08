@@ -2009,6 +2009,17 @@ def get_draft_latex(draft_id: int) -> DraftPushResult:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.post("/api/drafts/{draft_id}/detach", response_model=ResumeDraft)
+def detach_draft_from_resume(draft_id: int) -> ResumeDraft:
+    """Let the document be edited by hand, and keep the canvas work beside it."""
+    try:
+        return ResumeDraft(**drafts_module.detach_draft(draft_id))
+    except drafts_module.DraftNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/api/drafts/{draft_id}/push", response_model=DraftPushResult)
 def push_draft(draft_id: int, force: bool = False) -> DraftPushResult:
     """Write the rendered document into the linked resume variant.

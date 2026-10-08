@@ -192,6 +192,7 @@ export const api = {
   placeDraftEntry: (id, body) => post(`/drafts/${id}/placements`, body),
   draftCoverage: (id) => get(`/drafts/${id}/coverage`),
   draftLatex: (id) => get(`/drafts/${id}/latex`),
+  detachDraft: (id) => post(`/drafts/${id}/detach`),
   pushDraft: (id, force = false) => post(`/drafts/${id}/push${query({ force })}`),
   tailorDraft: (id) => post(`/drafts/${id}/tailor`),
   draftProposals: (id) => get(`/drafts/${id}/proposals`),
