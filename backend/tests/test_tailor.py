@@ -14,6 +14,7 @@ import pytest
 
 import database
 import drafts
+import main
 import models
 import tailor
 from claude_cli import ClaudeCallError, ClaudeUnavailable
@@ -527,17 +528,30 @@ def test_an_imported_record_with_no_title_is_skipped(app_client, monkeypatch):
     assert [e["title"] for e in entries] == ["Delphi"]
 
 
-def test_importing_with_no_text_is_a_400(app_client):
+@pytest.fixture
+def no_stored_resume(monkeypatch):
+    """Nothing for the import to fall back to.
+
+    Pinned rather than left alone, so these cases do not quietly read whatever
+    resume happens to sit in the developer's checkout.
+    """
+    monkeypatch.setattr(main, "get_resume_text", lambda: None)
+
+
+def test_importing_with_nothing_to_read_says_where_to_put_a_resume(app_client, no_stored_resume):
+    """The old message asked the user to paste text. The interface has no
+    paste box, so it named an action they could not take."""
     response = app_client.post("/api/bank/import", json={"text": "   "})
+
     assert response.status_code == 400
-    assert "Paste the text of a resume" in response.json()["detail"]
+    assert "Settings" in response.json()["detail"]
 
 
-def test_importing_with_no_body_at_all_is_a_400(app_client):
+def test_importing_with_no_body_at_all_is_a_400(app_client, no_stored_resume):
     assert app_client.post("/api/bank/import").status_code == 400
 
 
-def test_importing_a_non_string_is_a_400_rather_than_a_500(app_client):
+def test_importing_a_non_string_is_a_400_rather_than_a_500(app_client, no_stored_resume):
     assert app_client.post("/api/bank/import", json={"text": {"paste": "here"}}).status_code == 400
 
 

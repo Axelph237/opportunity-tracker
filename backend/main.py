@@ -90,6 +90,7 @@ from models import (
 )
 from resume_loader import (
     fix_resume_tex,
+    get_resume_text,
     load_resume,
     resume_status,
     resume_tex,
@@ -1747,10 +1748,22 @@ def reorder_bank_entries(payload: BankReorder) -> list[BankEntry]:
 
 @app.post("/api/bank/import", response_model=BankImportPreview)
 def import_bank_entries(payload: Optional[dict[str, Any]] = None) -> BankImportPreview:
-    """A preview, not an insert. Nothing is written until the user confirms."""
+    """A preview, not an insert. Nothing is written until the user confirms.
+
+    With no text in the request this reads the resume the app already holds,
+    which is what the button offering this says it does. There is no paste box
+    in the interface, so a request carrying nothing used to come back asking
+    the user to paste something they had nowhere to put.
+    """
     text = (payload or {}).get("text")
+    source = text if isinstance(text, str) and text.strip() else (get_resume_text() or "")
+    if not source.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="No resume to read yet. Upload one under Settings, Resume, and try again.",
+        )
     try:
-        preview = tailor.import_bank_from_resume(text if isinstance(text, str) else "")
+        preview = tailor.import_bank_from_resume(source)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except tailor.TailorError as exc:
