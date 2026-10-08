@@ -65,6 +65,7 @@ async function requestPage(path) {
 const get = (path) => request(path)
 const post = (path, body) => request(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
 const patch = (path, body) => request(path, { method: 'PATCH', body: JSON.stringify(body) })
+const put = (path, body) => request(path, { method: 'PUT', body: JSON.stringify(body) })
 const del = (path) => request(path, { method: 'DELETE' })
 
 function query(params) {
@@ -165,6 +166,9 @@ export const api = {
   createBankEntry: (body) => post('/bank/entries', body),
   reorderBankEntries: (ids) => post('/bank/entries/reorder', { ids }),
   importBank: () => post('/bank/import'),
+  resumeLibrary: () => get('/resume-library'),
+  resumeContact: () => get('/resume-contact'),
+  saveResumeContact: (body) => put('/resume-contact', body),
   bankEntry: (id) => get(`/bank/entries/${id}`),
   updateBankEntry: (id, body) => patch(`/bank/entries/${id}`, body),
   deleteBankEntry: (id) => del(`/bank/entries/${id}`),
@@ -188,6 +192,7 @@ export const api = {
   placeDraftEntry: (id, body) => post(`/drafts/${id}/placements`, body),
   draftCoverage: (id) => get(`/drafts/${id}/coverage`),
   draftLatex: (id) => get(`/drafts/${id}/latex`),
+  detachDraft: (id) => post(`/drafts/${id}/detach`),
   pushDraft: (id, force = false) => post(`/drafts/${id}/push${query({ force })}`),
   tailorDraft: (id) => post(`/drafts/${id}/tailor`),
   draftProposals: (id) => get(`/drafts/${id}/proposals`),

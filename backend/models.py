@@ -467,6 +467,10 @@ class ResumeInstanceSummary(BaseModel):
     compile_errors: list[CompileError] = Field(default_factory=list)
     is_default: bool = False
     linked_count: int = 0
+    # The draft this was composed from, if it was composed at all. Derived by
+    # looking back along `resume_drafts.resume_instance_id` rather than stored,
+    # so there is one place that owns the link and it cannot fall out of step.
+    draft_id: Optional[int] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -794,6 +798,48 @@ class PlaceEntry(BaseModel):
     # Absent files the record under the section its kind belongs to, which is
     # what dragging it onto the canvas rather than into a section means.
     section_ref: Optional[str] = None
+
+
+class ContactLink(BaseModel):
+    """One of the addresses printed under the name."""
+
+    label: str = ""
+    url: str
+
+
+class ResumeContact(BaseModel):
+    """Who the resume is for and how to reach them.
+
+    One record for the install. A name and an email do not change with the
+    job being applied for, so asking again per draft is how a resume goes out
+    still reading "Your Name".
+    """
+
+    name: str = ""
+    location: str = ""
+    email: str = ""
+    phone: str = ""
+    links: list[ContactLink] = Field(default_factory=list)
+
+
+class LibraryResume(BaseModel):
+    """One resume in the library, whichever halves of it exist.
+
+    A resume can be composed on the canvas, written as source, or both. The
+    two ids say which, and `key` is the only identifier unique across both.
+    """
+
+    key: str
+    instance_id: Optional[int] = None
+    draft_id: Optional[int] = None
+    name: str
+    composed: bool = False
+    pushed: bool = False
+    has_pdf: bool = False
+    is_default: bool = False
+    compile_ok: bool = False
+    linked_count: int = 0
+    updated_at: Optional[str] = None
 
 
 class ProposalOp(BaseModel):

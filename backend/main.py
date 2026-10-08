@@ -19,6 +19,8 @@ from fastapi.staticfiles import StaticFiles
 
 import advisor
 import bank as bank_module
+import contact as contact_module
+import library as library_module
 import drafts as drafts_module
 import favicons as favicons_module
 import jobposts
@@ -68,6 +70,8 @@ from models import (
     OpportunityUpdate,
     PlaceEntry,
     ProposalResolve,
+    LibraryResume,
+    ResumeContact,
     ResumeDraft,
     ResumeDraftCreate,
     ResumeDraftUpdate,
@@ -346,7 +350,13 @@ def stats() -> dict[str, Any]:
                    (SELECT COUNT(*) FROM applications) AS applications,
                    (SELECT COUNT(*) FROM sources WHERE active = 1 AND pending_approval = 0) AS active_sources,
                    (SELECT COUNT(*) FROM source_proposals WHERE status = 'pending') AS pending_proposals,
-                   (SELECT COUNT(*) FROM resume_instances) AS resumes"""
+                   -- Every resume, the way the library lists them: the
+                   -- documents, plus the drafts nothing has been pushed from.
+                   -- Counting documents alone left the badge disagreeing with
+                   -- the list directly under it.
+                   (SELECT COUNT(*) FROM resume_instances)
+                   + (SELECT COUNT(*) FROM resume_drafts WHERE resume_instance_id IS NULL)
+                   AS resumes"""
         ).fetchone()
     # The sidebar polls this, so the agent's configurable name rides along with it.
     return {
@@ -1905,6 +1915,22 @@ def extract_job_post_keywords(post_id: int, refresh: bool = False) -> JobPost:
     return JobPost(**post)
 
 
+@app.get("/api/resume-library", response_model=list[LibraryResume])
+def read_resume_library() -> list[LibraryResume]:
+    """Every resume, composed or written, as one list."""
+    return [LibraryResume(**row) for row in library_module.list_library()]
+
+
+@app.get("/api/resume-contact", response_model=ResumeContact)
+def read_resume_contact() -> ResumeContact:
+    return ResumeContact(**contact_module.get_contact())
+
+
+@app.put("/api/resume-contact", response_model=ResumeContact)
+def write_resume_contact(payload: ResumeContact) -> ResumeContact:
+    return ResumeContact(**contact_module.save_contact(payload.model_dump()))
+
+
 @app.get("/api/drafts", response_model=list[ResumeDraft])
 def list_drafts() -> list[ResumeDraft]:
     return [ResumeDraft(**draft) for draft in drafts_module.list_drafts()]
@@ -1977,6 +2003,17 @@ def get_draft_latex(draft_id: int) -> DraftPushResult:
     """What a push would write, without writing it."""
     try:
         return DraftPushResult(**drafts_module.render_draft(draft_id))
+    except drafts_module.DraftNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/drafts/{draft_id}/detach", response_model=ResumeDraft)
+def detach_draft_from_resume(draft_id: int) -> ResumeDraft:
+    """Let the document be edited by hand, and keep the canvas work beside it."""
+    try:
+        return ResumeDraft(**drafts_module.detach_draft(draft_id))
     except drafts_module.DraftNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:

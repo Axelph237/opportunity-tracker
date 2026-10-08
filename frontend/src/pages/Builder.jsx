@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import BankEntryForm from '../components/BankEntryForm'
 import BankRail from '../components/BankRail'
-import CoveragePanel from '../components/CoveragePanel'
+import ContactForm from '../components/ContactForm'
+import CoveragePanel, { JobAdForm } from '../components/CoveragePanel'
 import DraftCanvas from '../components/DraftCanvas'
 import Dropdown from '../components/Dropdown'
 import PageLayout from '../components/PageLayout'
 import ProposalReview from '../components/ProposalReview'
+import SurfaceToggle from '../components/SurfaceToggle'
 import SlidePanel from '../components/SlidePanel'
 import { ResizeHandle, usePanelSize } from '../components/Resizable'
 import { useConfirm } from '../components/ConfirmDialog'
-import { PlusIcon } from '../components/icons'
+import { EditIcon, PlusIcon } from '../components/icons'
 import { api } from '../api'
 
 const BANK_WIDTH = { default: 240, min: 180, max: 420 }
@@ -128,7 +131,20 @@ export default function Builder() {
   const [coverage, setCoverage] = useState([])
   const [proposal, setProposal] = useState(null)
   const [standing, setStanding] = useState(null)
+  // Every resume, so the switcher here offers the same set the Resumes
+  // rail does rather than only the ones this surface can compose.
+  const [library, setLibrary] = useState([])
   const [importPreview, setImportPreview] = useState(null)
+  const [contact, setContact] = useState(null)
+  const [editingContact, setEditingContact] = useState(false)
+  const [params] = useSearchParams()
+  const navigate = useNavigate()
+  const [renaming, setRenaming] = useState(false)
+  const [rendering, setRendering] = useState(false)
+  const [rendered, setRendered] = useState(null)
+  // Escape unmounts the field, and the blur it fires must not commit.
+  const cancelRename = useRef(false)
+  const [editingAd, setEditingAd] = useState(false)
   const [editing, setEditing] = useState(null)
   const [draggingEntry, setDraggingEntry] = useState(null)
   const [focusedPlacement, setFocusedPlacement] = useState(null)
@@ -185,11 +201,21 @@ export default function Builder() {
     let cancelled = false
     ;(async () => {
       try {
-        const [draftRows, bankRows] = await Promise.all([api.drafts(), api.bankEntries()])
+        const [draftRows, bankRows, contactRow, libraryRows] = await Promise.all([
+          api.drafts(),
+          api.bankEntries(),
+          api.resumeContact(),
+          api.resumeLibrary(),
+        ])
         if (cancelled) return
         setDrafts(draftRows)
         setBank(bankRows)
-        setDraftId(draftRows[0]?.id ?? null)
+        setContact(contactRow)
+        setLibrary(libraryRows)
+        // Arriving from a resume picks that resume's draft, not the newest.
+        const asked = Number(params.get('draft'))
+        const wanted = draftRows.some((row) => row.id === asked) ? asked : null
+        setDraftId(wanted ?? draftRows[0]?.id ?? null)
       } catch (err) {
         if (!cancelled) setError(err.message)
       } finally {
@@ -266,6 +292,42 @@ export default function Builder() {
       await refreshCoverage(draft.id, Boolean(draft.job_post_id))
     })
 
+  const renameDraft = (name) => {
+    if (!draft || !name || name === draft.name) return
+    act(async () => {
+      const saved = await api.updateDraft(draft.id, { name })
+      setDraft((current) => ({ ...current, ...saved }))
+      setDrafts(await api.drafts())
+    })
+  }
+
+  const saveContact = (body) =>
+    act(async () => {
+      setContact(await api.saveResumeContact(body))
+      setEditingContact(false)
+      // The heading is part of what a push writes, so a draft already pushed
+      // is now behind. Re-reading the draft is what refreshes that warning.
+      if (draftId) setDraft(await api.draft(draftId))
+    })
+
+  /**
+   * The switcher offers every resume, not only the composable ones.
+   *
+   * A source-only resume has no canvas, so picking it leaves for the surface
+   * that can open it. Hiding those would make this list quietly different
+   * from the one on the other surface.
+   */
+  const switcherOptions = library.map((row) => ({
+    value: row.composed ? `draft:${row.draft_id}` : `instance:${row.instance_id}`,
+    label: row.name,
+  }))
+
+  const openRow = (value) => {
+    const [kind, id] = String(value).split(':')
+    if (kind === 'draft') setDraftId(Number(id))
+    else navigate(`/resumes?instance=${id}`)
+  }
+
   const createDraft = () =>
     act(async () => {
       const created = await api.createDraft({ name: 'New resume' })
@@ -276,6 +338,7 @@ export default function Builder() {
   const saveJobPost = (body) =>
     act(async () => {
       const post = await api.createJobPost(body)
+      setEditingAd(false)
       setJobPost(post)
       const saved = await api.updateDraft(draft.id, { job_post_id: post.id })
       setDraft((current) => ({ ...current, ...saved }))
@@ -381,6 +444,28 @@ export default function Builder() {
       resume_instance_id: result?.resume_instance_id ?? current.resume_instance_id,
     }))
 
+  /** Push, compile, and show the page, without leaving for the Resumes tab. */
+  const pushAndRender = async () => {
+    setRendering(true)
+    try {
+      const result = await api.pushDraft(draft.id)
+      remember(result)
+      const compiled = await api.compileResumeInstance(result.resume_instance_id)
+      setRendered(
+        compiled.has_pdf
+          ? { url: api.resumePdfUrl(compiled.id, { version: compiled.compiled_at || '' }) }
+          : { error: compiled.compile_errors?.[0]?.message || 'That did not compile.' },
+      )
+      setError(null)
+    } catch (err) {
+      // A 409 means a hand-edit is in the way, which the Push button already
+      // explains and offers to resolve. Saying it twice, differently, would not.
+      setRendered({ error: err.status === 409 ? 'Push it first: that resume was edited by hand.' : err.message })
+    } finally {
+      setRendering(false)
+    }
+  }
+
   const push = () =>
     act(async () => {
       let edited = null
@@ -413,13 +498,52 @@ export default function Builder() {
 
   const actions = (
     <>
-      <Dropdown
-        value={draftId ?? ''}
-        onChange={(value) => setDraftId(value ? Number(value) : null)}
-        options={drafts.map((row) => ({ value: row.id, label: row.name }))}
-        ariaLabel="Resume draft"
-        className="w-56"
+      <SurfaceToggle
+        active="compose"
+        draftId={draft?.id}
+        instanceId={draft?.resume_instance_id}
       />
+      {/* One position, two modes. Showing the name in a field beside a
+          switcher that also showed it read as two inputs for the same thing. */}
+      {renaming && draft ? (
+        <input
+          autoFocus
+          className="field w-56"
+          defaultValue={draft.name}
+          aria-label="Resume name"
+          onBlur={(event) => {
+            if (!cancelRename.current) renameDraft(event.target.value.trim())
+            cancelRename.current = false
+            setRenaming(false)
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.target.blur()
+            if (event.key === 'Escape') {
+              cancelRename.current = true
+              event.target.blur()
+            }
+          }}
+        />
+      ) : (
+        <Dropdown
+          value={draft ? `draft:${draft.id}` : ''}
+          onChange={openRow}
+          options={switcherOptions}
+          ariaLabel="Switch resume"
+          className="w-56"
+        />
+      )}
+      {draft && !renaming ? (
+        <button
+          type="button"
+          className="btn"
+          aria-label="Rename this resume"
+          title="Rename this resume"
+          onClick={() => setRenaming(true)}
+        >
+          <EditIcon />
+        </button>
+      ) : null}
       <button type="button" className="btn" onClick={createDraft} disabled={busy} title="Start another resume">
         <PlusIcon />
         New
@@ -446,12 +570,13 @@ export default function Builder() {
           Push to resume
         </button>
       ) : null}
+
     </>
   )
 
   if (loading) {
     return (
-      <PageLayout title="Builder" icon="builder" description="Compose a resume for one job ad.">
+      <PageLayout title="Resumes" icon="resumes" description="Compose a resume for one job ad.">
         <p className="py-6 font-mono text-data text-on-surface-variant">Loading…</p>
       </PageLayout>
     )
@@ -459,9 +584,11 @@ export default function Builder() {
 
   return (
     <PageLayout
-      title="Builder"
-      icon="builder"
-      description="Compose a resume for one job ad out of your experience bank, and watch its keywords go covered."
+      // Titled for the thing, not the surface. One sidebar entry leading to
+      // two differently named pages is what made them read as two places.
+      title="Resumes"
+      icon="resumes"
+      description="Compose this resume out of your experience bank, and watch the ad's keywords go covered."
       error={error}
       scroll={false}
       padded={false}
@@ -475,7 +602,7 @@ export default function Builder() {
             importing={importing}
             draggingId={draggingEntry?.id ?? null}
             onImport={runImport}
-            onCreate={() => setEditing({})}
+            onCreate={(kind) => setEditing(kind ? { kind } : {})}
             onEdit={setEditing}
             onDragStart={setDraggingEntry}
             onDragEnd={() => setDraggingEntry(null)}
@@ -516,8 +643,10 @@ export default function Builder() {
                 terms={terms}
                 droppingEntry={draggingEntry}
                 focusedPlacement={focusedPlacement}
+                contact={contact}
                 onChange={commit}
                 onPlace={placeEntry}
+                onEditContact={() => setEditingContact(true)}
               />
             </div>
 
@@ -543,10 +672,20 @@ export default function Builder() {
                 busy={busy}
                 extracting={extracting}
                 generating={generating}
-                onSaveJobPost={saveJobPost}
+                onAddJobPost={() => setEditingAd(true)}
                 onExtract={extractKeywords}
                 onLocate={setFocusedPlacement}
                 onTailor={tailor}
+                preview={
+                  draft
+                    ? {
+                        ...rendered,
+                        rendering,
+                        onRender: pushAndRender,
+                        instanceId: draft.resume_instance_id,
+                      }
+                    : null
+                }
               />
             </aside>
           </>
@@ -561,12 +700,40 @@ export default function Builder() {
       >
         {editing ? (
           <BankEntryForm
-            key={editing.id ?? 'new'}
-            entry={editing.id ? editing : null}
+            // A blank form opened from a group heading is seeded with that
+            // group's kind, so the key has to change with it or the open form
+            // keeps the kind it was first opened on.
+            key={editing.id ?? `new:${editing.kind ?? ''}`}
+            entry={editing.id || editing.kind ? editing : null}
             busy={busy}
             onSave={saveEntry}
             onDelete={deleteEntry}
             onCancel={() => setEditing(null)}
+          />
+        ) : null}
+      </SlidePanel>
+
+      <SlidePanel
+        open={editingAd}
+        onClose={() => setEditingAd(false)}
+        title="The job ad"
+        subtitle="Its wording is what the coverage panel measures against."
+      >
+        {editingAd ? <JobAdForm onSave={saveJobPost} busy={busy} /> : null}
+      </SlidePanel>
+
+      <SlidePanel
+        open={editingContact}
+        onClose={() => setEditingContact(false)}
+        title="Your contact details"
+        subtitle="Printed at the top of every resume you build."
+      >
+        {editingContact ? (
+          <ContactForm
+            contact={contact}
+            busy={busy}
+            onSave={saveContact}
+            onCancel={() => setEditingContact(false)}
           />
         ) : null}
       </SlidePanel>

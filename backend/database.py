@@ -345,6 +345,52 @@ RESUME_TEMPLATE = r"""\documentclass[letterpaper,11pt]{article}
 
 \begin{document}
 
+%%RESUME-CONTACT%%
+
+%%RESUME-BODY%%
+
+\end{document}
+"""
+
+
+LEGACY_RESUME_TEMPLATES = (
+    # What shipped before the contact marker: a hardcoded heading that made
+    # every resume read "Your Name". Recognised by its exact bytes so the
+    # upgrade can never overwrite a template the user has edited.
+    r"""\documentclass[letterpaper,11pt]{article}
+
+\usepackage[margin=0.75in]{geometry}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage[hidelinks]{hyperref}
+
+\pagestyle{empty}
+\titleformat{\section}{\large\bfseries}{}{0pt}{}[\titlerule]
+\titlespacing{\section}{0pt}{12pt}{6pt}
+\setlist[itemize]{leftmargin=*, topsep=2pt, itemsep=1pt}
+
+% Every \resume* macro the renderer emits, named after the sb2nov template the
+% project's own resume.tex already uses. A template missing one of them is a
+% template no draft can compile through; the two sides are held together by
+% backend/tests/test_resume_template.py.
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0pt, label={}, topsep=4pt, itemsep=4pt]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}}
+
+\newcommand{\resumeItem}[1]{\item\small{#1}}
+\newcommand{\resumeSubheading}[4]{%
+  \item
+  \textbf{#1} \hfill #2 \\
+  \textit{\small #3} \hfill \textit{\small #4}%
+}
+\newcommand{\resumeProjectHeading}[2]{%
+  \item
+  \small #1 \hfill #2%
+}
+
+\begin{document}
+
 \begin{center}
   {\LARGE \textbf{Your Name}} \\[4pt]
   city, state $\cdot$ you@example.com $\cdot$ (000) 000-0000 \\
@@ -355,7 +401,8 @@ RESUME_TEMPLATE = r"""\documentclass[letterpaper,11pt]{article}
 %%RESUME-BODY%%
 
 \end{document}
-"""
+""",
+)
 
 
 DEFAULT_SETTINGS = {
@@ -517,6 +564,24 @@ def seed_sources(conn: sqlite3.Connection) -> int:
 def seed_settings(conn: sqlite3.Connection) -> None:
     for key, value in DEFAULT_SETTINGS.items():
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, value))
+    _upgrade_untouched_template(conn)
+
+
+def _upgrade_untouched_template(conn: sqlite3.Connection) -> None:
+    """Move an install still holding a shipped default onto the current one.
+
+    The template is seeded once with INSERT OR IGNORE, so an install created
+    before the contact marker existed would keep printing "Your Name" forever
+    and have no way to reach the field. Matching the previous default's exact
+    bytes is what makes this safe: a template the user has edited, even by one
+    character, is not one of these and is left alone.
+    """
+    row = conn.execute("SELECT value FROM settings WHERE key = 'resume_template'").fetchone()
+    if row is None or row["value"] not in LEGACY_RESUME_TEMPLATES:
+        return
+    conn.execute(
+        "UPDATE settings SET value = ? WHERE key = 'resume_template'", (RESUME_TEMPLATE,)
+    )
 
 
 def get_setting(key: str, default: str | None = None) -> str | None:

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import HighlightedText from './HighlightedText'
-import { TrashIcon } from './icons'
+import { DragHandleIcon, EditIcon, TrashIcon } from './icons'
 import { moved } from './reorder'
 
 /**
@@ -243,7 +243,66 @@ function Placement({ placement, inline, terms, bankText, focused, dragging, item
   )
 }
 
-function Section({ section, terms, bankText, focusedPlacement, accepting, onBody, onDropEntry }) {
+/**
+ * The heading the compiled resume prints, shown where it prints.
+ *
+ * Editable from here because this is the one place the user is looking at the
+ * document as a whole. What it edits is one record for the whole app, not
+ * something belonging to this draft, which the empty state says out loud.
+ */
+function ContactBlock({ contact, onEdit }) {
+  const reach = [contact?.location, contact?.email, contact?.phone].filter(Boolean)
+  const links = (contact?.links || []).filter((link) => link.url)
+  const filled = Boolean(contact?.name || reach.length || links.length)
+
+  return (
+    <section className="group/contact rounded border border-outline-variant bg-surface-container px-3 py-2.5">
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1 text-center">
+          {filled ? (
+            <>
+              {contact.name ? (
+                <div className="text-base font-semibold text-on-surface">{contact.name}</div>
+              ) : null}
+              {reach.length ? (
+                <div className="font-mono text-data text-on-surface-variant">{reach.join(' · ')}</div>
+              ) : null}
+              {links.length ? (
+                <div className="font-mono text-data text-primary">
+                  {links.map((link) => link.label || link.url).join(' · ')}
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <button
+              type="button"
+              className="font-mono text-data text-on-surface-variant underline-offset-2 hover:text-primary hover:underline"
+              title="Printed at the top of every resume you build"
+              onClick={onEdit}
+            >
+              Add your name and contact details
+            </button>
+          )}
+        </div>
+        <button
+          type="button"
+          aria-label="Edit your contact details"
+          title="Shared by every resume you build"
+          className="shrink-0 text-on-surface-variant opacity-0 transition-opacity hover:text-primary focus-visible:opacity-100 group-hover/contact:opacity-100"
+          onClick={onEdit}
+        >
+          <EditIcon />
+        </button>
+      </div>
+    </section>
+  )
+}
+
+
+function Section({
+  section, terms, bankText, focusedPlacement, accepting, drag, dragging, moveBy,
+  onBody, onDropEntry,
+}) {
   const [over, setOver] = useState(false)
   const placements = section.placements || []
   const refs = placements.map((placement) => placement.ref)
@@ -261,13 +320,19 @@ function Section({ section, terms, bankText, focusedPlacement, accepting, onBody
 
   return (
     <section
+      // Two drags land here and only one can be live at a time. The reorder
+      // handlers return immediately unless a section is being dragged, and
+      // `accepting` is only set while a bank record is.
+      onDragEnter={drag.onDragEnter}
       onDragOver={(event) => {
+        drag.onDragOver(event)
         if (!accepting) return
         event.preventDefault()
         setOver(true)
       }}
       onDragLeave={() => setOver(false)}
       onDrop={(event) => {
+        drag.onDrop(event)
         if (!accepting) return
         event.preventDefault()
         // The canvas behind this takes the same drop and routes it to the
@@ -277,10 +342,24 @@ function Section({ section, terms, bankText, focusedPlacement, accepting, onBody
         onDropEntry(section.ref)
       }}
       className={`rounded border transition-colors ${
-        over ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface'
-      }`}
+        over ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface-container'
+      } ${dragging ? 'opacity-40' : ''}`}
     >
       <header className="flex items-center gap-2 border-b border-outline-variant px-3 py-1.5">
+        {/* Only the grip is draggable. Making the whole section draggable stops
+            the rename field beside it from taking a text selection. */}
+        <button
+          type="button"
+          draggable
+          onDragStart={drag.onDragStart}
+          onDragEnd={drag.onDragEnd}
+          onKeyDown={arrowMove(section.ref, moveBy)}
+          aria-label={`Reorder the ${section.label} section`}
+          title="Drag to reorder, or press Alt with an arrow key"
+          className="shrink-0 cursor-grab text-on-surface-variant transition-colors hover:text-on-surface"
+        >
+          <DragHandleIcon />
+        </button>
         <input
           key={section.ref}
           // No width cap: the deck's advice is to rename a section to the ad's
@@ -361,8 +440,10 @@ export default function DraftCanvas({
   terms = [],
   droppingEntry,
   focusedPlacement,
+  contact,
   onChange,
   onPlace,
+  onEditContact,
 }) {
   const root = useRef(null)
   const sections = body?.sections || []
@@ -371,6 +452,12 @@ export default function DraftCanvas({
   )
 
   const onBody = (update) => onChange(update({ ...body, sections }))
+
+  const sectionOrder = useServerReorder(
+    sections.map((section) => section.ref),
+    (next) => onBody((current) => editSections(current, (list) => sortByRef(list, next))),
+  )
+  const sectionByRef = new Map(sections.map((section) => [section.ref, section]))
 
   // Jumping here from a keyword chip in the coverage panel.
   useEffect(() => {
@@ -419,19 +506,28 @@ export default function DraftCanvas({
           dropEntry(null)
         }}
       >
+        <ContactBlock contact={contact} onEdit={onEditContact} />
+
         {sections.length ? (
-          sections.map((section) => (
-            <Section
-              key={section.ref}
-              section={section}
-              terms={terms}
-              bankText={bankText}
-              focusedPlacement={focusedPlacement}
-              accepting={Boolean(droppingEntry)}
-              onBody={onBody}
-              onDropEntry={dropEntry}
-            />
-          ))
+          sectionOrder.order.map((ref) => {
+            const section = sectionByRef.get(ref)
+            if (!section) return null
+            return (
+              <Section
+                key={ref}
+                section={section}
+                terms={terms}
+                bankText={bankText}
+                focusedPlacement={focusedPlacement}
+                accepting={Boolean(droppingEntry)}
+                drag={sectionOrder.itemProps(ref)}
+                dragging={sectionOrder.dragging === ref}
+                moveBy={sectionOrder.moveBy}
+                onBody={onBody}
+                onDropEntry={dropEntry}
+              />
+            )
+          })
         ) : (
           <div className="rounded border border-dashed border-outline-variant px-6 py-12 text-center">
             <p className="text-on-surface-variant">

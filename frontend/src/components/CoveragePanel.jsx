@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import PdfPreview from './PdfPreview'
 import { Field, TextArea, TextInput } from './editing'
 import { AI_CALL_TITLE, AiSpark } from './icons'
 
@@ -42,7 +44,7 @@ function Term({ item, onLocate }) {
 }
 
 /** Paste the ad. There is no job-description text anywhere else in the app. */
-function JobAdForm({ onSave, busy }) {
+export function JobAdForm({ onSave, busy }) {
   const [title, setTitle] = useState('')
   const [organization, setOrganization] = useState('')
   const [url, setUrl] = useState('')
@@ -102,27 +104,95 @@ export default function CoveragePanel({
   busy,
   extracting,
   generating,
-  onSaveJobPost,
+  onAddJobPost,
   onExtract,
   onLocate,
   onTailor,
+  preview,
 }) {
+  // Coverage answers "does it say the right words". Preview answers "what
+  // does it look like". Both are about the draft beside them, and neither
+  // used to be reachable without leaving the page.
+  const [view, setView] = useState('coverage')
+  const showing = preview ? view : 'coverage'
   const covered = coverage.filter((item) => item.covered).length
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-outline-variant px-4 py-2">
-        <span className="label-data">Keyword coverage</span>
-        {coverage.length ? (
+        {preview ? (
+          <div role="tablist" aria-label="Right panel" className="flex items-center gap-1">
+            {[['coverage', 'Keyword coverage'], ['preview', 'Preview']].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={showing === key}
+                onClick={() => setView(key)}
+                className={`label-data rounded px-2 py-1 transition-colors ${
+                  showing === key
+                    ? 'bg-secondary-container text-on-secondary-container'
+                    : 'hover:bg-surface-container-high hover:text-on-surface'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <span className="label-data">Keyword coverage</span>
+        )}
+        {showing === 'coverage' && coverage.length ? (
           <span className="font-mono text-data text-on-surface-variant">
             {covered}/{coverage.length}
           </span>
         ) : null}
       </div>
 
+      {showing === 'preview' ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="shrink-0 space-y-2 border-b border-outline-variant px-4 py-2">
+            <button
+              type="button"
+              className="btn w-full justify-center"
+              disabled={preview.rendering}
+              onClick={preview.onRender}
+              title="Push this draft and compile the resume it writes"
+            >
+              {preview.rendering ? 'Rendering…' : 'Push and render'}
+            </button>
+            {/* The next thing you want after looking at the page is the
+                editor, the PDF download and the listing links beside it. */}
+            {preview.instanceId ? (
+              <Link
+                to={`/resumes?instance=${preview.instanceId}`}
+                className="btn w-full justify-center"
+                title="Open this resume's source, render and listing links"
+              >
+                Open in Resumes
+              </Link>
+            ) : null}
+          </div>
+          {preview.url ? (
+            <PdfPreview url={preview.url} label="Resume preview" />
+          ) : (
+            <p className="px-4 py-4 font-mono text-data text-on-surface-variant">
+              {preview.error || 'Nothing rendered yet. Push and render to see the page.'}
+            </p>
+          )}
+        </div>
+      ) : (
+
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
         {!jobPost ? (
-          <JobAdForm onSave={onSaveJobPost} busy={busy} />
+          <div className="space-y-3">
+            <p className="text-on-surface-variant">
+              Paste the ad you are writing this for and its keywords appear here.
+            </p>
+            <button type="button" className="btn btn-primary" onClick={onAddJobPost}>
+              Paste the job ad
+            </button>
+          </div>
         ) : (
           <>
             <div>
@@ -135,14 +205,12 @@ export default function CoveragePanel({
             {!coverage.length ? (
               <div className="space-y-3 rounded border border-outline-variant bg-surface p-3">
                 <p className="text-on-surface-variant">
-                  {loading
-                    ? 'Checking the draft against the ad…'
-                    : 'Claude reads the ad and pulls out the terms worth mirroring, split into technical terms, action verbs and professional skills. Takes up to a minute.'}
+                  {loading ? 'Checking the draft against the ad…' : 'No keywords pulled out yet.'}
                 </p>
                 <button
                   type="button"
                   className="btn btn-primary"
-                  title={AI_CALL_TITLE}
+                  title={`${AI_CALL_TITLE}. Up to a minute.`}
                   disabled={extracting || loading}
                   onClick={onExtract}
                 >
@@ -176,17 +244,18 @@ export default function CoveragePanel({
         )}
       </div>
 
-      {jobPost && coverage.length ? (
+      )}
+
+      {showing === 'coverage' && jobPost && coverage.length ? (
         <div className="shrink-0 space-y-2 border-t border-outline-variant px-4 py-3">
           <p className="font-mono text-data text-on-surface-variant">
-            Claude reorders and rewrites what is already in your bank to close the gaps. It is
-            offered as a reviewable set of changes, and it cannot add experience you do not have.
-            Takes up to a minute.
+            Reorders and rewrites your own bullets to close the gaps. It cannot add experience you
+            do not have.
           </p>
           <button
             type="button"
             className="btn btn-primary w-full justify-center"
-            title={AI_CALL_TITLE}
+            title={`${AI_CALL_TITLE}. Up to a minute.`}
             disabled={generating}
             onClick={onTailor}
           >

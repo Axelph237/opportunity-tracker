@@ -357,3 +357,28 @@ def test_importing_writes_nothing_until_the_user_confirms(app_client, monkeypatc
     app_client.post("/api/bank/import", json={})
 
     assert app_client.get("/api/bank/entries").json() == []
+
+
+def test_an_install_still_holding_the_shipped_template_is_moved_onto_the_current_one(db_path):
+    """The template is seeded once, so an install made before the contact
+    marker existed would print "Your Name" forever with no field to fix it."""
+    with database.get_db() as conn:
+        conn.execute("UPDATE settings SET value = ? WHERE key = 'resume_template'",
+                     (database.LEGACY_RESUME_TEMPLATES[0],))
+
+    database.init_db()
+
+    template = database.get_setting("resume_template")
+    assert "%%RESUME-CONTACT%%" in template
+    assert "Your Name" not in template
+
+
+def test_a_template_the_user_edited_is_never_replaced(db_path):
+    """Matching the old default's exact bytes is the whole safety argument."""
+    mine = database.LEGACY_RESUME_TEMPLATES[0] + "\n% my own line\n"
+    with database.get_db() as conn:
+        conn.execute("UPDATE settings SET value = ? WHERE key = 'resume_template'", (mine,))
+
+    database.init_db()
+
+    assert database.get_setting("resume_template") == mine

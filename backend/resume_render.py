@@ -12,7 +12,7 @@ copy of the list to keep in sync.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import bank
 from bank import KindLayout
@@ -21,6 +21,10 @@ from bank import KindLayout
 # the end of the document because a template without it is a template the user
 # has not told us where to write into.
 BODY_MARKER = "%%RESUME-BODY%%"
+
+# Optional, unlike the body marker. A template that writes its own heading
+# block keeps it; one carrying this marker gets the stored contact record.
+CONTACT_MARKER = "%%RESUME-CONTACT%%"
 
 # The ten characters TeX reads as instructions rather than text. Applied with
 # `str.translate`, which walks the original string once, so the backslashes the
@@ -165,13 +169,47 @@ def render_section(section: dict) -> str:
     )
 
 
+def render_contact(contact: dict) -> str:
+    """The centred heading block: name, then the ways to reach them.
+
+    Returns an empty string for a record with nothing in it, so a template
+    carrying the marker and an install that never filled the form in produces
+    a resume with no heading rather than an empty rule and a stray separator.
+    """
+    contact = contact or {}
+    name = escape(contact.get("name"))
+    reach = [escape(contact.get(field)) for field in ("location", "email", "phone")]
+    links = [
+        rf"\href{{{escape_url(link.get('url'))}}}{{{escape(link.get('label'))}}}"
+        for link in contact.get("links") or []
+        if link.get("url")
+    ]
+
+    rows = []
+    if name:
+        rows.append(rf"{{\LARGE \textbf{{{name}}}}}")
+    for row in ([part for part in reach if part], links):
+        if row:
+            rows.append(r" $\cdot$ ".join(row))
+    if not rows:
+        return ""
+
+    # Joined rather than trimmed, so the last row never carries a line break
+    # it has nothing to break to. The name gets more air under it than the
+    # rows below it give each other.
+    joined = ""
+    for index, row in enumerate(rows[:-1]):
+        joined += row + (r" \\[4pt]" if index == 0 and name else r" \\") + "\n  "
+    return "\\begin{center}\n  " + joined + rows[-1] + "\n\\end{center}"
+
+
 def render_body(body: dict) -> str:
     """The whole draft as the LaTeX that replaces the template's body marker."""
     sections = [render_section(section) for section in (body or {}).get("sections") or []]
     return "\n\n".join(section for section in sections if section.strip())
 
 
-def render_document(template: str, body: dict) -> str:
+def render_document(template: str, body: dict, contact: Optional[dict] = None) -> str:
     """The draft placed inside the user's own preamble and heading block."""
     source = template or ""
     if BODY_MARKER not in source:
@@ -179,6 +217,8 @@ def render_document(template: str, body: dict) -> str:
             f"The resume template has no {BODY_MARKER} marker, so there is nowhere "
             "to put the draft. Add the marker where the body belongs."
         )
+    if CONTACT_MARKER in source:
+        source = source.replace(CONTACT_MARKER, render_contact(contact or {}), 1)
     # The first marker is where the body belongs. Replacing all of them would
     # print the whole resume once per marker; the ones left behind are LaTeX
     # comments and cost the document nothing.

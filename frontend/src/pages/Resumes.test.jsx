@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import Resumes from './Resumes'
 import { ConfirmProvider } from '../components/ConfirmDialog'
 import { api } from '../api'
@@ -14,6 +14,8 @@ vi.mock('../api', async (importOriginal) => {
     api: {
       ...actual.api,
       resumes: vi.fn(),
+      resumeLibrary: vi.fn(),
+      detachDraft: vi.fn(),
       resumeInstance: vi.fn(),
       resumeLinks: vi.fn(),
       createResumeInstance: vi.fn(),
@@ -36,13 +38,18 @@ vi.mock('../api', async (importOriginal) => {
 // contract — value in, onChange out, goToLine/insertAtCursor on the ref — so a
 // textarea honouring that contract exercises everything this page cares about.
 vi.mock('../components/LatexEditor', () => ({
-  default: ({ value, onChange, errorLines, editorRef }) => {
+  default: ({ value, onChange, errorLines, editorRef, readOnly }) => {
     if (editorRef) {
       editorRef.current = { goToLine: vi.fn(), insertAtCursor: vi.fn() }
     }
     return (
       <div>
-        <textarea aria-label="LaTeX source" value={value} onChange={(e) => onChange(e.target.value)} />
+        <textarea
+          aria-label="LaTeX source"
+          value={value}
+          readOnly={Boolean(readOnly)}
+          onChange={(e) => onChange(e.target.value)}
+        />
         <span data-testid="error-lines">{(errorLines || []).join(',')}</span>
       </div>
     )
@@ -52,8 +59,12 @@ vi.mock('../components/LatexEditor', () => ({
 const ENGINE = { available: true, path: '/opt/homebrew/bin/tectonic', engine: 'tectonic', version: 'Tectonic 0.15' }
 const NO_ENGINE = { available: false, path: null, engine: null, version: null, candidates: ['tectonic'] }
 
+/**
+ * A rail row. The rail reads the library shape now, so this carries both the
+ * instance fields `detail()` spreads and the library fields beside them.
+ */
 function summary(overrides) {
-  return {
+  const base = {
     id: 1,
     name: 'Base',
     description: null,
@@ -67,6 +78,14 @@ function summary(overrides) {
     created_at: '2026-09-01T10:00:00Z',
     updated_at: '2026-09-22T10:00:00Z',
     ...overrides,
+  }
+  return {
+    ...base,
+    key: `instance:${base.id}`,
+    instance_id: base.id,
+    draft_id: base.draft_id ?? null,
+    composed: base.draft_id != null,
+    pushed: true,
   }
 }
 
@@ -96,21 +115,30 @@ const PDFLATEX_ISSUE = {
  * finished — which is exactly the `act(...)` warning. Awaiting the first
  * rendered content here keeps every test below free of that.
  */
-async function setup({ list, instance, links = [], assets = [], engine = ENGINE } = {}) {
+/** Reports the current route, so a test can see where a row sent the user. */
+function Where() {
+  const location = useLocation()
+  return <span data-testid="where">{location.pathname + location.search}</span>
+}
+
+async function setup({ list, instance, links = [], assets = [], engine = ENGINE, route = '/resumes' } = {}) {
   const rows = list ?? [summary()]
-  api.resumes.mockResolvedValue(rows)
+  api.resumeLibrary.mockResolvedValue(rows)
   api.latexStatus.mockResolvedValue(engine)
   api.resumeInstance.mockResolvedValue(instance ?? detail())
   api.resumeLinks.mockResolvedValue(links)
   api.resumeAssets.mockResolvedValue(assets)
   const rendered = render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[route]}>
       <ConfirmProvider>
         <Resumes onMutate={() => {}} />
+        <Where />
       </ConfirmProvider>
     </MemoryRouter>,
   )
-  if (rows.length) await screen.findByLabelText('LaTeX source')
+  // The editor only renders for a row with a document behind it. A rail of
+  // nothing but unpushed drafts lands on the empty state instead.
+  if (rows.some((row) => row.pushed)) await screen.findByLabelText('LaTeX source')
   else await screen.findByRole('button', { name: /new resume/i })
   return rendered
 }
@@ -423,5 +451,117 @@ describe('Resumes / templates written for pdflatex', () => {
     // And it must not trigger the autosave path all over again.
     await new Promise((resolve) => setTimeout(resolve, 1200))
     expect(api.updateResumeInstance).not.toHaveBeenCalled()
+  })
+})
+
+describe('Resumes / the way back to the Builder', () => {
+  it('offers the canvas behind a resume that was composed', async () => {
+    await setup({ instance: detail({ draft_id: 5 }) })
+
+    const link = await screen.findByRole('link', { name: /open in builder/i })
+    expect(link).toHaveAttribute('href', '/builder?draft=5')
+  })
+
+  it('offers nothing for a resume that was typed by hand', async () => {
+    await setup({ instance: detail({ draft_id: null }) })
+
+    expect(screen.queryByRole('link', { name: /open in builder/i })).not.toBeInTheDocument()
+  })
+
+  it('opens the resume named in the url rather than the scored one', async () => {
+    const scored = summary({ id: 1, name: 'Base', is_default: true })
+    const pushed = summary({ id: 2, name: 'Composed', is_default: false })
+
+    await setup({ list: [scored, pushed], route: '/resumes?instance=2' })
+
+    await waitFor(() => expect(api.resumeInstance).toHaveBeenCalledWith(2))
+  })
+
+  it('falls back to the scored one when the url names a resume that is gone', async () => {
+    const scored = summary({ id: 1, name: 'Base', is_default: true })
+
+    await setup({ list: [scored], route: '/resumes?instance=9090' })
+
+    await waitFor(() => expect(api.resumeInstance).toHaveBeenCalledWith(1))
+  })
+})
+
+describe('Resumes / the rail lists every resume', () => {
+  const unpushed = (overrides) => ({
+    key: 'draft:3', instance_id: null, draft_id: 3, name: 'Still on the canvas',
+    composed: true, pushed: false, has_pdf: false, is_default: false,
+    compile_ok: false, linked_count: 0, updated_at: '2026-09-23T10:00:00Z',
+    ...overrides,
+  })
+
+  it('lists a draft nobody has pushed, as a way back to the canvas', async () => {
+    await setup({ list: [summary(), unpushed()] })
+
+    expect(screen.getByText(/on the canvas, not pushed/i)).toBeInTheDocument()
+
+    // The rail is shared, so a row is always a control. This surface has no
+    // document for an unpushed draft, so opening it goes to the canvas.
+    await userEvent.setup().click(screen.getByRole('button', { name: /still on the canvas/i }))
+
+    expect(screen.getByTestId('where')).toHaveTextContent('/builder?draft=3')
+  })
+
+  it('never opens the editor on a row with no document behind it', async () => {
+    // It would be an empty editor over nothing, and a save would have no
+    // resume to write to.
+    await setup({ list: [unpushed(), summary({ id: 9, name: 'Base' })] })
+
+    await waitFor(() => expect(api.resumeInstance).toHaveBeenCalledWith(9))
+    expect(api.resumeInstance).not.toHaveBeenCalledWith(3)
+  })
+
+  it('opens nothing at all when every resume is still a draft', async () => {
+    await setup({ list: [unpushed()] })
+
+    expect(api.resumeInstance).not.toHaveBeenCalled()
+  })
+})
+
+describe('Resumes / a resume the canvas owns', () => {
+  const composed = () => detail({ draft_id: 5 })
+
+  it('holds the source read-only, because a push would overwrite the edit', async () => {
+    await setup({ instance: composed() })
+
+    expect(await screen.findByLabelText('LaTeX source')).toHaveAttribute('readonly')
+    expect(screen.getByText(/read-only here until you detach it/i)).toBeInTheDocument()
+  })
+
+  it('leaves a hand-written resume alone', async () => {
+    await setup({ instance: detail({ draft_id: null }) })
+
+    expect(screen.getByLabelText('LaTeX source')).not.toHaveAttribute('readonly')
+    expect(screen.queryByText(/until you detach it/i)).not.toBeInTheDocument()
+  })
+
+  it('detaches on confirm, and says nothing is lost either way', async () => {
+    const user = userEvent.setup()
+    api.detachDraft.mockResolvedValue({ id: 5 })
+    api.resumeInstance.mockResolvedValue(detail({ draft_id: null }))
+    await setup({ instance: composed() })
+
+    await user.click(screen.getByRole('button', { name: /detach and edit/i }))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(within(dialog).getByText(/nothing is deleted/i)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: /detach and edit/i }))
+
+    await waitFor(() => expect(api.detachDraft).toHaveBeenCalledWith(5))
+  })
+
+  it('writes nothing when the warning is dismissed', async () => {
+    const user = userEvent.setup()
+    await setup({ instance: composed() })
+
+    await user.click(screen.getByRole('button', { name: /detach and edit/i }))
+    const dialog = await screen.findByRole('alertdialog')
+    await user.click(within(dialog).getByRole('button', { name: /cancel/i }))
+
+    expect(api.detachDraft).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('LaTeX source')).toHaveAttribute('readonly')
   })
 })

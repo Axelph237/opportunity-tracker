@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import LatexEditor from '../components/LatexEditor'
 import LatexIssues from '../components/LatexIssues'
 import PageLayout from '../components/PageLayout'
 import PdfPreview from '../components/PdfPreview'
+import ResumeLibraryRail from '../components/ResumeLibraryRail'
+import SurfaceToggle from '../components/SurfaceToggle'
 import ResumeAssets from '../components/ResumeAssets'
 import ResumeRecommendations from '../components/ResumeRecommendations'
 import { ResizeHandle, usePanelSize } from '../components/Resizable'
@@ -12,6 +14,7 @@ import {
   CheckIcon,
   DownloadIcon,
   DuplicateIcon,
+  NavIcon,
   PlusIcon,
   SidebarIcon,
   StarIcon,
@@ -39,52 +42,25 @@ function SaveState({ saving, dirty, savedAt }) {
   return null
 }
 
-/** The rail of saved variants. Width and framing are the parent's business. */
-function InstanceList({ instances, selectedId, onSelect, onCreate, busy }) {
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between gap-2 border-b border-outline-variant px-3 py-2">
-        <span className="label-data">Versions</span>
-        <button type="button" className="btn" onClick={onCreate} disabled={busy} title="New resume">
-          <PlusIcon />
-          New
-        </button>
-      </div>
-      <ul className="min-h-0 flex-1 overflow-y-auto">
-        {instances.map((instance) => (
-          <li key={instance.id}>
-            <button
-              type="button"
-              onClick={() => onSelect(instance.id)}
-              aria-current={instance.id === selectedId}
-              className={`w-full border-b border-outline-variant/60 px-3 py-2.5 text-left transition-colors ${
-                instance.id === selectedId
-                  ? 'border-l-2 border-l-primary bg-secondary-container pl-[10px] text-on-secondary-container'
-                  : 'border-l-2 border-l-transparent pl-[10px] hover:bg-surface-container-high'
-              }`}
-            >
-              <span className="flex items-center gap-1.5">
-                <span className="line-clamp-1 flex-1 text-on-surface">{instance.name}</span>
-                {instance.is_default ? (
-                  <StarIcon className="h-3.5 w-3.5 shrink-0 text-primary" />
-                ) : null}
-              </span>
-              <span className="mt-0.5 flex items-center gap-2 font-mono text-data text-on-surface-variant">
-                {instance.linked_count ? `${instance.linked_count} linked` : 'unlinked'}
-                {instance.compiled_at && !instance.compile_ok ? (
-                  <span className="text-error">· errors</span>
-                ) : null}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
+
+/**
+ * Which resume the editor should open.
+ *
+ * Only a row with a document behind it can be opened here, so a draft nobody
+ * has pushed is skipped rather than selected into an empty editor.
+ */
+function firstOpenable(rows, asked) {
+  const openable = rows.filter((row) => row.pushed)
+  if (openable.some((row) => row.instance_id === asked)) return asked
+  return openable.find((row) => row.is_default)?.instance_id ?? openable[0]?.instance_id ?? null
 }
 
 export default function Resumes({ onMutate }) {
+  // Every resume, composed or written. The editor can only open the ones
+  // with a document behind them; the rest link to the canvas.
   const [instances, setInstances] = useState([])
+  const [params] = useSearchParams()
+  const navigate = useNavigate()
   const [selectedId, setSelectedId] = useState(null)
   const [instance, setInstance] = useState(null)
   const [source, setSource] = useState('')
@@ -127,7 +103,7 @@ export default function Resumes({ onMutate }) {
   })
 
   const refreshList = useCallback(async () => {
-    const rows = await api.resumes()
+    const rows = await api.resumeLibrary()
     setInstances(rows)
     return rows
   }, [])
@@ -137,11 +113,13 @@ export default function Resumes({ onMutate }) {
     let cancelled = false
     ;(async () => {
       try {
-        const [rows, engineStatus] = await Promise.all([api.resumes(), api.latexStatus()])
+        const [rows, engineStatus] = await Promise.all([api.resumeLibrary(), api.latexStatus()])
         if (cancelled) return
         setInstances(rows)
         setEngine(engineStatus)
-        setSelectedId(rows.find((row) => row.is_default)?.id ?? rows[0]?.id ?? null)
+        // Arriving from the Builder opens the resume it just pushed, rather
+        // than the scored one.
+        setSelectedId(firstOpenable(rows, Number(params.get('instance'))))
       } catch (err) {
         if (!cancelled) setError(err.message)
       } finally {
@@ -262,6 +240,50 @@ export default function Resumes({ onMutate }) {
       onMutate?.()
     })
 
+  /**
+   * Cut this resume loose from the canvas so its source can be hand-edited.
+   *
+   * Composing is lossy one way: LaTeX cannot be read back into bank records.
+   * Rather than let the two fight, which is what the refused push was, the
+   * choice is made once here and nothing is thrown away on either side.
+   */
+  const detach = async () => {
+    const confirmed = await confirm({
+      title: 'Edit this source by hand?',
+      body: (
+        <>
+          <p>
+            This resume is composed on the canvas, and every push rewrites its source. Detaching
+            stops that so you can edit it here.
+          </p>
+          <p className="mt-2 text-on-surface-variant">
+            Nothing is deleted. The canvas version stays as its own resume, still composed from
+            your bank, and this document carries on without it.
+          </p>
+        </>
+      ),
+      confirmLabel: 'Detach and edit',
+    })
+    if (!confirmed) return
+    act(async () => {
+      await api.detachDraft(instance.draft_id)
+      setInstance(await api.resumeInstance(instance.id))
+      await refreshList()
+    })
+  }
+
+  /**
+   * Open a row from the shared rail.
+   *
+   * A draft nobody has pushed has no document for this surface to show, so it
+   * opens on the canvas instead. The rail is the same on both; only what a
+   * row means differs.
+   */
+  const openRow = (row) => {
+    if (row.pushed) setSelectedId(row.instance_id)
+    else navigate(`/builder?draft=${row.draft_id}`)
+  }
+
   const rename = (name) => {
     if (!instance || name === instance.name) return
     act(async () => {
@@ -309,7 +331,7 @@ export default function Resumes({ onMutate }) {
     act(async () => {
       await api.deleteResumeInstance(instance.id)
       const rows = await refreshList()
-      setSelectedId(rows.find((row) => row.is_default)?.id ?? rows[0]?.id ?? null)
+      setSelectedId(firstOpenable(rows))
       onMutate?.()
     })
   }
@@ -341,7 +363,7 @@ export default function Resumes({ onMutate }) {
     <PageLayout
       title="Resumes"
       icon="resumes"
-      description="Tailored versions of your resume, written in LaTeX and rendered here."
+      description="The document itself, in LaTeX, rendered beside what you are writing."
       error={error}
       scroll={false}
       padded={false}
@@ -359,11 +381,26 @@ export default function Resumes({ onMutate }) {
               . You can still write and save your source.
             </p>
           </div>
+        ) : instance?.draft_id ? (
+          <div className="mb-4 flex flex-wrap items-center gap-3 rounded border border-primary/50 bg-primary/5 px-4 py-2.5">
+            <NavIcon name="builder" className="h-4 w-4 shrink-0 text-primary" />
+            <p className="min-w-0 flex-1 text-on-surface-variant">
+              Composed on the canvas. Every push rewrites this source, so it is read-only here
+              until you detach it.
+            </p>
+            <Link to={`/builder?draft=${instance.draft_id}`} className="btn">
+              Open in Builder
+            </Link>
+            <button type="button" className="btn" onClick={detach} disabled={busy}>
+              Detach and edit
+            </button>
+          </div>
         ) : null
       }
       actions={
         instance ? (
           <>
+            <SurfaceToggle active="source" draftId={instance.draft_id} instanceId={instance.id} />
             <SaveState saving={saving} dirty={dirty} savedAt={instance.updated_at} />
             <button
               type="button"
@@ -401,10 +438,10 @@ export default function Resumes({ onMutate }) {
         {/* Versions above, assets below, with their own draggable divider. */}
         <div className="flex h-full min-h-0 shrink-0 flex-col" style={{ width: railWidth }}>
           <div className="min-h-0 flex-1">
-            <InstanceList
-              instances={instances}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
+            <ResumeLibraryRail
+              rows={instances}
+              selectedKey={selectedId ? `instance:${selectedId}` : null}
+              onSelect={openRow}
               onCreate={() => create(null)}
               busy={busy}
             />
@@ -443,9 +480,18 @@ export default function Resumes({ onMutate }) {
           <div className="flex flex-1 items-center justify-center p-10 text-center">
             <div className="max-w-md space-y-3">
               <p className="text-on-surface-variant">
-                No resumes yet. Create one to start from your uploaded{' '}
-                <span className="font-mono">resume.tex</span>, or from a template if you have not
-                uploaded one.
+                {instances.length ? (
+                  <>
+                    Nothing here has been pushed into a document yet. Open one on the canvas and
+                    push it, or write a new one from source.
+                  </>
+                ) : (
+                  <>
+                    No resumes yet. Create one to start from your uploaded{' '}
+                    <span className="font-mono">resume.tex</span>, or from a template if you have
+                    not uploaded one.
+                  </>
+                )}
               </p>
               <button type="button" className="btn btn-primary" onClick={() => create(null)} disabled={busy}>
                 <PlusIcon />
@@ -523,6 +569,9 @@ export default function Resumes({ onMutate }) {
                   editorRef={editor}
                   value={source}
                   errorLines={errorLines}
+                  // A composed resume is rewritten from the canvas on every
+                  // push, so an edit here is lost work until it is detached.
+                  readOnly={Boolean(instance.draft_id)}
                   onChange={(next) => {
                     setSource(next)
                     setDirty(true)

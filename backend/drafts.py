@@ -26,6 +26,7 @@ from typing import Any, Callable, Iterator, Optional
 from uuid import uuid4
 
 import bank
+import contact
 import jobposts
 import keywords
 import resume_render
@@ -316,6 +317,57 @@ def update_draft(draft_id: int, values: dict[str, Any]) -> dict[str, Any]:
         conn.execute(
             f"UPDATE resume_drafts SET {assignments}, updated_at = ? WHERE id = ?",
             [*changes.values(), _now(), draft_id],
+        )
+    updated = get_draft(draft_id)
+    # While a draft and a resume are linked they are one thing, so one name.
+    # Renaming only this half left the resume it became under whatever it was
+    # called at the moment it was first pushed.
+    instance_id = updated.get("resume_instance_id")
+    if "name" in changes and instance_id is not None:
+        _rename_instance_if_free(instance_id, changes["name"])
+    return updated
+
+
+def _rename_instance_if_free(instance_id: int, name: str) -> None:
+    """Keep the two names in step without letting a name block the work.
+
+    A resume name is unique. Once a draft has been detached, the document it
+    left behind can still be holding the name the draft carries, and after
+    that every push would fail on the name rather than on anything to do with
+    the document. The push is the point; the name is a courtesy.
+    """
+    try:
+        resumes.update_instance(instance_id, {"name": name})
+    except ValueError:
+        pass
+
+
+def detach_draft(draft_id: int) -> dict[str, Any]:
+    """Cut a draft loose from the resume it was pushed into.
+
+    Composing is lossy in one direction: a document edited by hand cannot be
+    read back into bank records, so a resume cannot be both source-edited and
+    still driven by the canvas. Detaching is how that choice gets made once,
+    deliberately, instead of recurring as a refused push every time.
+
+    Nothing is deleted. The document carries on as a source-only resume and
+    the draft stays on the canvas as its own unpushed one, so an arrangement
+    that took a while to build is not destroyed by a confirmation dialog.
+    """
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT resume_instance_id FROM resume_drafts WHERE id = ?", (draft_id,)
+        ).fetchone()
+        if row is None:
+            raise DraftNotFound(f"Draft {draft_id} not found")
+        if row["resume_instance_id"] is None:
+            raise ValueError("This draft is not attached to a resume.")
+        conn.execute(
+            """UPDATE resume_drafts
+               SET resume_instance_id = NULL, pushed_latex = NULL, pushed_at = NULL,
+                   updated_at = ?
+               WHERE id = ?""",
+            (_now(), draft_id),
         )
     return get_draft(draft_id)
 
@@ -730,7 +782,9 @@ def coverage_report(draft_id: int) -> dict[str, Any]:
 # ----------------------------------------------------------------------- push
 
 def _rendered(draft: dict) -> str:
-    return resume_render.render_document(get_setting("resume_template") or "", draft["body"])
+    return resume_render.render_document(
+        get_setting("resume_template") or "", draft["body"], contact.get_contact()
+    )
 
 
 def _instance_latex(instance_id: Optional[int]) -> Optional[str]:
@@ -789,6 +843,7 @@ def push_draft(draft_id: int, *, force: bool = False) -> dict[str, Any]:
 
     instance_id = draft.get("resume_instance_id")
     current = _instance_latex(instance_id)
+    minted = current is None
     if current is None:
         # `pushed_latex` describes a row nobody can lose work from, so there
         # is nothing here to refuse over, and minting the variant on this
@@ -802,6 +857,10 @@ def push_draft(draft_id: int, *, force: bool = False) -> dict[str, Any]:
                            draft.get("pushed_latex") or "")
 
     resumes.update_instance(instance_id, {"latex": latex})
+    # Not on the push that minted it: `create_instance` has already picked a
+    # free name, and writing the draft's over the top undoes that.
+    if not minted:
+        _rename_instance_if_free(instance_id, draft["name"])
     with get_db() as conn:
         conn.execute(
             """UPDATE resume_drafts

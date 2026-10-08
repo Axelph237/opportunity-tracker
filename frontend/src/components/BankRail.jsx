@@ -22,12 +22,14 @@ function Entry({ entry, dragging, onEdit, onDragStart, onDragEnd }) {
         onDragStart(entry)
       }}
       onDragEnd={onDragEnd}
-      className={`group flex cursor-grab items-start gap-2 border-b border-outline-variant/60 px-3 py-2 transition-colors hover:bg-surface-container-high ${
-        dragging ? 'opacity-40' : ''
+      className={`group flex cursor-grab items-start gap-2 border-b border-l-2 border-b-outline-variant/60 py-2.5 pl-[10px] pr-3 transition-colors ${
+        dragging
+          ? 'border-l-primary bg-surface-container-high opacity-40'
+          : 'border-l-transparent hover:border-l-primary hover:bg-surface-container-high'
       }`}
     >
       <div className="min-w-0 flex-1">
-        <div className="line-clamp-2 text-on-surface">{entry.title}</div>
+        <div className="line-clamp-2 font-medium text-on-surface">{entry.title}</div>
         <div className="mt-0.5 flex items-center gap-2 font-mono text-data text-on-surface-variant">
           <span className="min-w-0 truncate">{caption || '—'}</span>
           {entry.bullets?.length ? <span className="shrink-0">· {entry.bullets.length}</span> : null}
@@ -70,27 +72,25 @@ export default function BankRail({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-outline-variant px-3 py-2">
         <span className="label-data">Experience bank</span>
-        <button type="button" className="btn" onClick={onCreate} title="Add a record by hand">
+        <button type="button" className="btn" onClick={() => onCreate()} title="Add a record by hand">
           <PlusIcon />
           New
         </button>
       </div>
 
-      <div className="shrink-0 space-y-1.5 border-b border-outline-variant px-3 py-2">
+      <div className="shrink-0 border-b border-outline-variant px-3 py-2">
         <button
           type="button"
           className={`btn w-full justify-center ${empty ? 'btn-primary' : ''}`}
-          title={AI_CALL_TITLE}
+          // The standing paragraph this replaced was three lines of the rail,
+          // permanently, for a button most people press once.
+          title={`Reads your current resume and proposes records to confirm. ${AI_CALL_TITLE}. Up to a minute.`}
           disabled={importing}
           onClick={onImport}
         >
           <AiSpark />
           {importing ? 'Reading your resume…' : 'Import from my resume'}
         </button>
-        <p className="font-mono text-data text-on-surface-variant">
-          Claude reads your current resume and proposes records for you to confirm. Takes up to a
-          minute.
-        </p>
       </div>
 
       <p id="bank-drag-hint" className="sr-only">
@@ -109,7 +109,7 @@ export default function BankRail({
             <p className="text-on-surface-variant">
               Import from your resume above to fill it in one go, or add the first record yourself.
             </p>
-            <button type="button" className="btn" onClick={onCreate}>
+            <button type="button" className="btn" onClick={() => onCreate()}>
               <PlusIcon />
               Add the first record
             </button>
@@ -120,8 +120,24 @@ export default function BankRail({
             if (!group.length) return null
             return (
               <section key={value}>
-                <h2 className="label-data sticky top-0 z-10 border-b border-outline-variant bg-surface-container px-3 py-1.5">
-                  {label}
+                <h2 className="label-data sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-outline-variant bg-surface-container-low px-3 py-1.5">
+                  <span>{label}</span>
+                  <span className="flex items-center gap-2">
+                    {/* Decoration. The list below already tells a screen reader
+                        how many records are in the group. */}
+                    <span aria-hidden="true">{group.length}</span>
+                    <button
+                      type="button"
+                      // Not "add a {kind} record": the kinds start with
+                      // vowels often enough that the article would be wrong.
+                      aria-label={`Add a record to ${label}`}
+                      title={`Add a record to ${label}`}
+                      className="shrink-0 text-on-surface-variant transition-colors hover:text-primary"
+                      onClick={() => onCreate(value)}
+                    >
+                      <PlusIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </span>
                 </h2>
                 <ul>
                   {group.map((entry) => (

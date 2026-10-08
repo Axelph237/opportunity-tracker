@@ -146,3 +146,26 @@ def test_the_characters_tex_reads_as_instructions_print_as_themselves(app_client
     page = pypdf.PdfReader(io.BytesIO(result.pdf_bytes)).pages[0].extract_text().replace("\n", "")
     for printed in ("38%", "$1.2M", "C++", "#1", "{braces}", "_under_"):
         assert printed in page, printed
+
+
+@pytest.mark.skipif(not ENGINE_AVAILABLE, reason="no TeX engine on this machine")
+def test_the_contact_record_prints_at_the_top_of_the_compiled_page(app_client, monkeypatch):
+    """The heading used to be hardcoded placeholder text, so every resume this
+    app produced went out reading "Your Name"."""
+    monkeypatch.setattr(latex, "latex_available", REAL_AVAILABLE)
+    pypdf = pytest.importorskip("pypdf")
+    app_client.put("/api/resume-contact", json={
+        "name": "Jordan Reyes", "location": "Chicago, IL",
+        "email": "morgan@example.edu", "phone": "(555) 555-0100",
+        "links": [{"label": "github.com/me", "url": "https://github.com/me"}],
+    })
+    draft_id = seed_a_draft(app_client)
+
+    source = app_client.post(f"/api/drafts/{draft_id}/push").json()["latex"]
+    result = REAL_COMPILE(source, timeout=180)
+
+    assert result.ok is True, result.log
+    text = "".join(page.extract_text() for page in pypdf.PdfReader(io.BytesIO(result.pdf_bytes)).pages)
+    for printed in ("Jordan Reyes", "Chicago, IL", "morgan@example.edu", "(555) 555-0100", "github.com/me"):
+        assert printed in text, f"{printed!r} missing from the page"
+    assert "Your Name" not in text

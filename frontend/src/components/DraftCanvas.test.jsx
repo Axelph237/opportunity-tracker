@@ -81,6 +81,18 @@ const drag = (from, onto, { drop = true } = {}) => {
   fireEvent.dragEnd(from, { dataTransfer })
 }
 
+const TWO_SECTIONS = {
+  sections: [
+    BODY.sections[0],
+    { ref: 's2', label: 'Projects', bullet_style: 'bullets', placements: [] },
+  ],
+}
+
+const grip = (label) => screen.getByLabelText(`Reorder the ${label} section`)
+const sectionOf = (label) => screen.getByDisplayValue(label).closest('section')
+const sectionLabels = () =>
+  [...document.querySelectorAll('section input')].map((input) => input.value)
+
 const row = (text) => screen.getByText(text).closest('li')
 const bulletsOf = (placementRef) =>
   [...document.querySelectorAll(`[data-placement="${placementRef}"] li`)].map((li) => li.textContent)
@@ -330,5 +342,66 @@ describe('DraftCanvas / jumping to a keyword', () => {
   it('rings the record it jumped to, so it is findable once it is on screen', () => {
     setup({ focusedPlacement: 'p2' })
     expect(document.querySelector('[data-placement="p2"]')).toHaveClass('ring-primary')
+  })
+})
+
+describe('DraftCanvas / reordering the sections', () => {
+  it('gives every section a grip to drag it by', () => {
+    setup({ initial: TWO_SECTIONS })
+
+    expect(grip('Experience')).toBeInTheDocument()
+    expect(grip('Projects')).toBeInTheDocument()
+  })
+
+  it('moves a section when its grip is dragged onto another', () => {
+    const onChange = setup({ initial: TWO_SECTIONS })
+
+    drag(grip('Experience'), sectionOf('Projects'))
+
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(onChange.mock.calls[0][0].sections.map((s) => s.ref)).toEqual(['s2', 's1'])
+  })
+
+  it('rearranges under the pointer before the drop, so the drag shows what it will do', () => {
+    setup({ initial: TWO_SECTIONS })
+    const dataTransfer = transfer()
+
+    fireEvent.dragStart(grip('Experience'), { dataTransfer })
+    fireEvent.dragEnter(sectionOf('Projects'), { dataTransfer })
+
+    expect(sectionLabels()).toEqual(['Projects', 'Experience'])
+  })
+
+  it('writes nothing when a section is dropped back where it started', () => {
+    const onChange = setup({ initial: TWO_SECTIONS })
+
+    drag(grip('Experience'), sectionOf('Experience'))
+
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('leaves the section itself undraggable, so its rename field still takes a selection', () => {
+    // A draggable ancestor stops a text selection starting inside an input,
+    // and the label is renamed far more often than the section is moved.
+    setup({ initial: TWO_SECTIONS })
+
+    expect(sectionOf('Experience')).not.toHaveAttribute('draggable', 'true')
+    expect(grip('Experience')).toHaveAttribute('draggable', 'true')
+  })
+
+  it('moves a section with alt and an arrow key, for anyone not dragging', () => {
+    const onChange = setup({ initial: TWO_SECTIONS })
+
+    fireEvent.keyDown(grip('Experience'), { key: 'ArrowDown', altKey: true })
+
+    expect(onChange.mock.calls[0][0].sections.map((s) => s.ref)).toEqual(['s2', 's1'])
+  })
+
+  it('still takes a bank record dropped on a section while no section is moving', () => {
+    const onPlace = dropping(ENTRY, { initial: TWO_SECTIONS })
+
+    fireEvent.drop(sectionOf('Projects'), { dataTransfer: transfer() })
+
+    expect(onPlace).toHaveBeenCalledWith(7, 's2')
   })
 })
