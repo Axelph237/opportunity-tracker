@@ -1,23 +1,9 @@
 """Agent tailoring: rearranging one draft to answer one advertisement.
 
-Two calls live here, and both of them stop short of writing anything the user
-has not seen. `propose_tailoring` stores a proposal and leaves the draft exactly
-as it found it; only `drafts.apply_proposal` moves a word, and only for the
-operations the user accepted. `import_bank_from_resume` returns a preview and
-touches no table at all.
-
-`_validate_ops` is the second of two gates. `drafts._check_bank_refs` already
-refuses an operation naming an entry or bullet the bank does not hold; this one
-runs first, before anything is stored, and additionally refuses an operation
-whose type is not in the algebra, whose placement or bullet ref is not in this
-draft, or whose rewrite is empty or longer than a resume line can be. What it
-rejects is counted and reported in the proposal summary. That counting is the
-point: a model that reaches for experience the student does not have loses the
-suggestion and the user is told it happened, rather than the whole thing being
-quietly smaller than it looks.
-
-This is why "never invent experience the student does not have" is a property of
-the system and not a hope about the prompt. The prompt asks; the table decides.
+`propose_tailoring` stores a proposal and leaves the draft exactly as it found
+it; `drafts.apply_proposal` is the only thing that moves a word, and only for
+the operations the user accepted. `import_bank_from_resume` returns a preview
+and touches no table at all.
 """
 
 from __future__ import annotations
@@ -40,13 +26,13 @@ MAX_POST_CHARS = 8000
 MAX_BANK_CHARS = 12_000
 MAX_OPS = 40
 
-# One bullet is one or two printed lines. A rewrite over this is rejected rather
-# than trimmed: a sentence cut off mid-word is a worse thing to hand the user
-# than one fewer suggestion.
+# One bullet is one or two printed lines. A rewrite over this is rejected
+# rather than trimmed: a sentence cut off mid-word is a worse thing to hand the
+# user than one fewer suggestion.
 MAX_BULLET_CHARS = 300
 
-# Only the ceiling that keeps a runaway response out of a log line. The decision
-# about what is too long for a bullet belongs to MAX_BULLET_CHARS.
+# A runaway string from the model should not sit in memory forty times over.
+# Set well above MAX_BULLET_CHARS so the length check still fires.
 MAX_RAW_TEXT_CHARS = 4000
 
 MAX_REF_CHARS = 80
@@ -155,12 +141,7 @@ Do not include any text outside the JSON object."""
 
 @dataclass(frozen=True)
 class OpShape:
-    """What one operation has to name before it is worth storing.
-
-    One row per operation, rather than a branch per operation, so the rules a
-    tailoring pass is held to can be read as a list and a ninth operation cannot
-    be added to the algebra without a row here saying what makes it valid.
-    """
+    """What one operation has to name before it is worth storing."""
 
     bank_field: Optional[str] = None   # an id the bank must already hold
     placement: bool = False            # a placement ref this draft must already have
@@ -170,6 +151,12 @@ class OpShape:
     text: bool = False                 # rewrite text, non-empty and within the bullet cap
 
 
+# One row per operation rather than a branch per operation, so a ninth
+# operation cannot join the algebra without a row here saying what makes it
+# valid. This table, not the prompt, is what makes "never invent experience the
+# student does not have" a property of the system: no operation introduces a
+# record, and `_rejection` reads these rows to throw out any that names an id
+# or a ref the bank and the draft do not already hold.
 OP_SHAPES: dict[str, OpShape] = {
     "AddEntry": OpShape(bank_field="entry_id"),
     "DropEntry": OpShape(placement=True),
@@ -184,12 +171,7 @@ OP_SHAPES: dict[str, OpShape] = {
 
 @dataclass(frozen=True)
 class Anchors:
-    """Every id and ref an operation is allowed to name, for one draft.
-
-    Resolved once up front. A proposal is validated against the bank and draft
-    as they stand when it is built, and `drafts.apply_proposal` checks the bank
-    half again against how they stand when the user accepts it.
-    """
+    """Every id and ref an operation is allowed to name, for one draft."""
 
     bank: dict[str, frozenset]              # "entry_id" / "bullet_id" -> ids the bank holds
     sections: frozenset[str]                # section refs in the draft body
@@ -197,23 +179,23 @@ class Anchors:
 
 
 def _anchors(entries: list[dict[str, Any]], body: dict) -> Anchors:
-    entry_ids = {entry["id"] for entry in entries}
-    bullet_ids = {
-        bullet["id"] for entry in entries for bullet in entry.get("bullets") or []
-    }
     sections: set[str] = set()
     placements: dict[str, frozenset[str]] = {}
     for section in (body or {}).get("sections") or []:
         if section.get("ref"):
             sections.add(section["ref"])
         for placement in section.get("placements") or []:
-            if not placement.get("ref"):
-                continue
-            placements[placement["ref"]] = frozenset(
-                bullet["ref"] for bullet in placement.get("bullets") or [] if bullet.get("ref")
-            )
+            if placement.get("ref"):
+                placements[placement["ref"]] = frozenset(
+                    b["ref"] for b in placement.get("bullets") or [] if b.get("ref")
+                )
     return Anchors(
-        bank={"entry_id": frozenset(entry_ids), "bullet_id": frozenset(bullet_ids)},
+        bank={
+            "entry_id": frozenset(entry["id"] for entry in entries),
+            "bullet_id": frozenset(
+                bullet["id"] for entry in entries for bullet in entry.get("bullets") or []
+            ),
+        },
         sections=frozenset(sections),
         placements=placements,
     )
@@ -294,13 +276,10 @@ def _rejection(op: dict[str, Any], anchors: Anchors) -> Optional[str]:
     if shape.label and not op["label"]:
         return f"{name} does not say what to rename the section to"
     if shape.text:
-        text = op["text"] or ""
-        if not text:
+        if not op["text"]:
             return f"{name} has no replacement text"
-        if len(text) > MAX_BULLET_CHARS:
-            return (
-                f"{name} is {len(text)} characters, past the {MAX_BULLET_CHARS} a bullet can be"
-            )
+        if len(op["text"]) > MAX_BULLET_CHARS:
+            return f"{name} is longer than the {MAX_BULLET_CHARS} characters a bullet can be"
     return None
 
 
@@ -375,16 +354,16 @@ def _normalize_entries(data: Any) -> list[dict[str, Any]]:
 def _post_for(draft: dict[str, Any]) -> dict[str, Any]:
     post_id = draft.get("job_post_id")
     if post_id is None:
-        raise TailorError(
-            "This draft is not linked to a job post. Tailoring needs the advertisement to tailor "
-            "towards."
+        raise ValueError(
+            "This draft is not linked to a job post. Tailoring needs the advertisement to "
+            "tailor towards."
         )
     try:
         post = jobposts.get_post(post_id)
     except jobposts.JobPostNotFound as exc:
-        raise TailorError(str(exc)) from exc
+        raise ValueError(str(exc)) from exc
     if not (post.get("raw_text") or "").strip():
-        raise TailorError(
+        raise ValueError(
             "This draft's job post has no advertisement text yet. Paste or fetch it before tailoring."
         )
     return post
@@ -448,6 +427,17 @@ def _draft_block(body: dict) -> str:
     return "\n".join(lines) or "The draft is empty."
 
 
+def _within(lines: list[str], budget: int) -> str:
+    """Whole lines only. Half an inventory line invites a half-guessed id."""
+    kept: list[str] = []
+    for line in lines:
+        budget -= len(line) + 1
+        if budget < 0:
+            break
+        kept.append(line)
+    return "\n".join(kept)
+
+
 def _bank_block(entries: list[dict[str, Any]]) -> str:
     lines: list[str] = []
     for entry in entries:
@@ -461,7 +451,7 @@ def _bank_block(entries: list[dict[str, Any]]) -> str:
             lines.append(f"  Detail: {entry['detail']}")
         for bullet in entry.get("bullets") or []:
             lines.append(f"  Bullet {bullet['id']}: {bullet.get('text')}")
-    return "\n".join(lines)[:MAX_BANK_CHARS] or "The bank is empty."
+    return _within(lines, MAX_BANK_CHARS) or "The bank is empty."
 
 
 def _prompt(
@@ -503,6 +493,25 @@ def _summary(data: Any, *, kept: int, dropped: int) -> str:
     return "\n\n".join(parts)
 
 
+def _nothing_usable(rejected: list[str]) -> str:
+    """What to say when the pass produced no operation worth reviewing.
+
+    An empty proposal would read as "nothing here needs improving", which is a
+    different and much more flattering claim than the one that is true.
+    """
+    if not rejected:
+        return (
+            "The tailoring pass did not suggest any changes to this draft. Check that the job post "
+            "has the full advertisement text."
+        )
+    noun = "change" if len(rejected) == 1 else "changes"
+    return (
+        f"Every one of the {len(rejected)} suggested {noun} named experience, wording or a position "
+        "this bank and draft do not have, so there is nothing to review. Add the experience to the "
+        "bank and tailor again."
+    )
+
+
 def propose_tailoring(draft_id: int, *, model: Optional[str] = None) -> dict[str, Any]:
     """Build and store a 'tailor' proposal. Returns the proposal dict.
 
@@ -514,7 +523,7 @@ def propose_tailoring(draft_id: int, *, model: Optional[str] = None) -> dict[str
     entries = bank.list_entries()
     anchors = _anchors(entries, draft["body"])
     if not entries and not anchors.placements:
-        raise TailorError(
+        raise ValueError(
             "There is nothing to tailor yet: the experience bank is empty and so is this draft. "
             "Import a resume into the bank first."
         )
@@ -552,25 +561,6 @@ def propose_tailoring(draft_id: int, *, model: Optional[str] = None) -> dict[str
         draft_id, post["id"], len(kept), len(rejected),
     )
     return drafts.get_proposal(proposal_id)
-
-
-def _nothing_usable(rejected: list[str]) -> str:
-    """What to say when the pass produced no operation worth reviewing.
-
-    An empty proposal would read as "nothing here needs improving", which is a
-    different and much more flattering claim than the one that is true.
-    """
-    if not rejected:
-        return (
-            "The tailoring pass did not suggest any changes to this draft. Check that the job post "
-            "has the full advertisement text."
-        )
-    noun = "change" if len(rejected) == 1 else "changes"
-    return (
-        f"Every one of the {len(rejected)} suggested {noun} named experience, wording or a position "
-        "this bank and draft do not have, so there is nothing to review. Add the experience to the "
-        "bank and tailor again."
-    )
 
 
 def import_bank_from_resume(text: str, *, model: Optional[str] = None) -> dict[str, Any]:
