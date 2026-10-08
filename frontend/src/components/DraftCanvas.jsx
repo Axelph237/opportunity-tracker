@@ -256,7 +256,7 @@ function ContactBlock({ contact, onEdit }) {
   const filled = Boolean(contact?.name || reach.length || links.length)
 
   return (
-    <section className="group/contact rounded border border-outline-variant bg-surface px-3 py-2.5">
+    <section className="group/contact rounded border border-outline-variant bg-surface-container px-3 py-2.5">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1 text-center">
           {filled ? (
@@ -342,7 +342,7 @@ function Section({
         onDropEntry(section.ref)
       }}
       className={`rounded border transition-colors ${
-        over ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface'
+        over ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface-container'
       } ${dragging ? 'opacity-40' : ''}`}
     >
       <header className="flex items-center gap-2 border-b border-outline-variant px-3 py-1.5">
