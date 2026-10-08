@@ -42,7 +42,7 @@ function Term({ item, onLocate }) {
 }
 
 /** Paste the ad. There is no job-description text anywhere else in the app. */
-function JobAdForm({ onSave, busy }) {
+export function JobAdForm({ onSave, busy }) {
   const [title, setTitle] = useState('')
   const [organization, setOrganization] = useState('')
   const [url, setUrl] = useState('')
@@ -102,7 +102,7 @@ export default function CoveragePanel({
   busy,
   extracting,
   generating,
-  onSaveJobPost,
+  onAddJobPost,
   onExtract,
   onLocate,
   onTailor,
@@ -122,7 +122,14 @@ export default function CoveragePanel({
 
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
         {!jobPost ? (
-          <JobAdForm onSave={onSaveJobPost} busy={busy} />
+          <div className="space-y-3">
+            <p className="text-on-surface-variant">
+              Paste the ad you are writing this for and its keywords appear here.
+            </p>
+            <button type="button" className="btn btn-primary" onClick={onAddJobPost}>
+              Paste the job ad
+            </button>
+          </div>
         ) : (
           <>
             <div>
@@ -135,14 +142,12 @@ export default function CoveragePanel({
             {!coverage.length ? (
               <div className="space-y-3 rounded border border-outline-variant bg-surface p-3">
                 <p className="text-on-surface-variant">
-                  {loading
-                    ? 'Checking the draft against the ad…'
-                    : 'Claude reads the ad and pulls out the terms worth mirroring, split into technical terms, action verbs and professional skills. Takes up to a minute.'}
+                  {loading ? 'Checking the draft against the ad…' : 'No keywords pulled out yet.'}
                 </p>
                 <button
                   type="button"
                   className="btn btn-primary"
-                  title={AI_CALL_TITLE}
+                  title={`${AI_CALL_TITLE}. Up to a minute.`}
                   disabled={extracting || loading}
                   onClick={onExtract}
                 >
@@ -179,14 +184,13 @@ export default function CoveragePanel({
       {jobPost && coverage.length ? (
         <div className="shrink-0 space-y-2 border-t border-outline-variant px-4 py-3">
           <p className="font-mono text-data text-on-surface-variant">
-            Claude reorders and rewrites what is already in your bank to close the gaps. It is
-            offered as a reviewable set of changes, and it cannot add experience you do not have.
-            Takes up to a minute.
+            Reorders and rewrites your own bullets to close the gaps. It cannot add experience you
+            do not have.
           </p>
           <button
             type="button"
             className="btn btn-primary w-full justify-center"
-            title={AI_CALL_TITLE}
+            title={`${AI_CALL_TITLE}. Up to a minute.`}
             disabled={generating}
             onClick={onTailor}
           >

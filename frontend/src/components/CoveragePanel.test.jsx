@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import CoveragePanel from './CoveragePanel'
+import CoveragePanel, { JobAdForm } from './CoveragePanel'
 
 const JOB = { id: 4, title: 'Quantum Computing Intern', organization: 'ACME Labs' }
 
@@ -16,7 +16,7 @@ const term = (overrides) => ({
 
 function setup(props = {}) {
   const handlers = {
-    onSaveJobPost: vi.fn(),
+    onAddJobPost: vi.fn(),
     onExtract: vi.fn(),
     onLocate: vi.fn(),
     onTailor: vi.fn(),
@@ -26,27 +26,56 @@ function setup(props = {}) {
 }
 
 describe('CoveragePanel / no job ad yet', () => {
-  it('asks for the ad itself, and says why the listing summary will not do', () => {
+  it('offers one way in rather than a form competing with the rest of the panel', () => {
     setup({ jobPost: null })
+
+    expect(screen.getByRole('button', { name: /paste the job ad/i })).toBeInTheDocument()
+    // The form moved to a slide panel, where every other form in this app lives.
+    expect(screen.queryByRole('textbox', { name: /the ad/i })).not.toBeInTheDocument()
+  })
+
+  it('asks the page to open the form', async () => {
+    const user = userEvent.setup()
+    const { onAddJobPost } = setup({ jobPost: null })
+
+    await user.click(screen.getByRole('button', { name: /paste the job ad/i }))
+
+    expect(onAddJobPost).toHaveBeenCalled()
+  })
+})
+
+describe('JobAdForm', () => {
+  const renderForm = () => {
+    const onSave = vi.fn()
+    render(<JobAdForm onSave={onSave} />)
+    return onSave
+  }
+
+  it('says why the listing summary will not do', () => {
+    renderForm()
+
     expect(screen.getByText(/two-sentence summary/i)).toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: /the ad/i })).toBeInTheDocument()
   })
 
   it('will not save an ad with no text in it', async () => {
     const user = userEvent.setup()
-    const { onSaveJobPost } = setup({ jobPost: null })
+    const onSave = renderForm()
+
     await user.type(screen.getByRole('textbox', { name: /role/i }), 'Intern')
+
     expect(screen.getByRole('button', { name: /save the ad/i })).toBeDisabled()
-    expect(onSaveJobPost).not.toHaveBeenCalled()
+    expect(onSave).not.toHaveBeenCalled()
   })
 
   it('saves the pasted ad', async () => {
     const user = userEvent.setup()
-    const { onSaveJobPost } = setup({ jobPost: null })
+    const onSave = renderForm()
+
     await user.type(screen.getByRole('textbox', { name: /role/i }), 'Intern')
     await user.type(screen.getByRole('textbox', { name: /the ad/i }), 'We need Qiskit.')
     await user.click(screen.getByRole('button', { name: /save the ad/i }))
-    expect(onSaveJobPost).toHaveBeenCalledWith({
+
+    expect(onSave).toHaveBeenCalledWith({
       title: 'Intern',
       organization: null,
       url: null,
@@ -55,12 +84,15 @@ describe('CoveragePanel / no job ad yet', () => {
   })
 })
 
+
 describe('CoveragePanel / no keywords extracted yet', () => {
   it('marks the extraction as a Claude call and says how long it may take', () => {
     setup()
     const button = screen.getByRole('button', { name: /pull out the keywords/i })
-    expect(button).toHaveAttribute('title', 'Runs a Claude call')
-    expect(screen.getByText(/takes up to a minute/i)).toBeInTheDocument()
+
+    // Both facts now ride on the button rather than standing as body text
+    // above it, which is what made this panel read as a wall.
+    expect(button).toHaveAttribute('title', 'Runs a Claude call. Up to a minute.')
   })
 
   it('blocks a second extraction while the first is in flight', () => {
@@ -132,7 +164,7 @@ describe('CoveragePanel / tailoring', () => {
   it('marks tailoring as a Claude call and promises it cannot invent experience', () => {
     setup({ coverage: COVERAGE })
     const button = screen.getByRole('button', { name: /tailor to this ad/i })
-    expect(button).toHaveAttribute('title', 'Runs a Claude call')
+    expect(button).toHaveAttribute('title', 'Runs a Claude call. Up to a minute.')
     expect(screen.getByText(/cannot add experience you do not have/i)).toBeInTheDocument()
   })
 

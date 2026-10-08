@@ -155,8 +155,8 @@ def test_the_contact_record_prints_at_the_top_of_the_compiled_page(app_client, m
     monkeypatch.setattr(latex, "latex_available", REAL_AVAILABLE)
     pypdf = pytest.importorskip("pypdf")
     app_client.put("/api/resume-contact", json={
-        "name": "Aiden King", "location": "Chicago, IL",
-        "email": "aidenk@uchicago.edu", "phone": "(312) 555-0100",
+        "name": "Jordan Reyes", "location": "Chicago, IL",
+        "email": "morgan@example.edu", "phone": "(555) 555-0100",
         "links": [{"label": "github.com/me", "url": "https://github.com/me"}],
     })
     draft_id = seed_a_draft(app_client)
@@ -166,6 +166,6 @@ def test_the_contact_record_prints_at_the_top_of_the_compiled_page(app_client, m
 
     assert result.ok is True, result.log
     text = "".join(page.extract_text() for page in pypdf.PdfReader(io.BytesIO(result.pdf_bytes)).pages)
-    for printed in ("Aiden King", "Chicago, IL", "aidenk@uchicago.edu", "(312) 555-0100", "github.com/me"):
+    for printed in ("Jordan Reyes", "Chicago, IL", "morgan@example.edu", "(555) 555-0100", "github.com/me"):
         assert printed in text, f"{printed!r} missing from the page"
     assert "Your Name" not in text

@@ -42,18 +42,18 @@ export default function ContactForm({ contact, onSave, onCancel, busy }) {
       </p>
 
       <Field label="Name">
-        <TextInput value={form.name} onChange={(name) => set({ name })} placeholder="Aiden King" />
+        <TextInput value={form.name} onChange={(name) => set({ name })} placeholder="Your full name" />
       </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Email">
-          <TextInput value={form.email} onChange={(email) => set({ email })} placeholder="you@uchicago.edu" />
+          <TextInput value={form.email} onChange={(email) => set({ email })} placeholder="you@example.edu" />
         </Field>
         <Field label="Phone">
-          <TextInput value={form.phone} onChange={(phone) => set({ phone })} placeholder="(312) 555-0100" />
+          <TextInput value={form.phone} onChange={(phone) => set({ phone })} placeholder="(555) 555-0100" />
         </Field>
       </div>
       <Field label="Location" hint="City and state is the convention; a street address is not.">
-        <TextInput value={form.location} onChange={(location) => set({ location })} placeholder="Chicago, IL" />
+        <TextInput value={form.location} onChange={(location) => set({ location })} placeholder="City, ST" />
       </Field>
 
       <div className="space-y-2">
@@ -65,14 +65,14 @@ export default function ContactForm({ contact, onSave, onCancel, busy }) {
                 <TextInput
                   value={link.label}
                   onChange={(label) => setLink(index, { label })}
-                  placeholder="github.com/me"
+                  placeholder="github.com/you"
                   aria-label={`Link ${index + 1} text`}
                   className="w-1/3"
                 />
                 <TextInput
                   value={link.url}
                   onChange={(url) => setLink(index, { url })}
-                  placeholder="https://github.com/me"
+                  placeholder="https://github.com/you"
                   aria-label={`Link ${index + 1} address`}
                   className="flex-1"
                 />

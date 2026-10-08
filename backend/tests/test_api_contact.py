@@ -7,10 +7,10 @@ import database
 import resume_render
 
 FULL = {
-    "name": "Aiden King",
+    "name": "Jordan Reyes",
     "location": "Chicago, IL",
-    "email": "aidenk@uchicago.edu",
-    "phone": "(312) 555-0100",
+    "email": "morgan@example.edu",
+    "phone": "(555) 555-0100",
     "links": [{"label": "github.com/me", "url": "https://github.com/me"}],
 }
 
@@ -27,7 +27,7 @@ def test_what_was_saved_is_what_comes_back(app_client):
 
     assert saved.status_code == 200, saved.text
     assert app_client.get("/api/resume-contact").json() == saved.json()
-    assert saved.json()["name"] == "Aiden King"
+    assert saved.json()["name"] == "Jordan Reyes"
 
 
 def test_a_link_with_no_address_is_dropped_rather_than_printed_empty(app_client):
@@ -57,7 +57,7 @@ def test_the_contact_reaches_the_document_a_push_writes(app_client):
 
     latex = app_client.get(f"/api/drafts/{draft_id}/latex").json()["latex"]
 
-    assert "Aiden King" in latex
+    assert "Jordan Reyes" in latex
     assert r"\href{https://github.com/me}{github.com/me}" in latex
     assert "%%RESUME-CONTACT%%" not in latex
     assert "Your Name" not in latex
@@ -71,4 +71,4 @@ def test_a_template_that_writes_its_own_heading_is_left_alone():
     out = resume_render.render_document(template, {"sections": []}, FULL)
 
     assert "Hand written" in out
-    assert "Aiden King" not in out
+    assert "Jordan Reyes" not in out

@@ -277,9 +277,10 @@ function ContactBlock({ contact, onEdit }) {
             <button
               type="button"
               className="font-mono text-data text-on-surface-variant underline-offset-2 hover:text-primary hover:underline"
+              title="Printed at the top of every resume you build"
               onClick={onEdit}
             >
-              No name or contact details yet. Every resume prints this, so add them once.
+              Add your name and contact details
             </button>
           )}
         </div>

@@ -78,21 +78,19 @@ export default function BankRail({
         </button>
       </div>
 
-      <div className="shrink-0 space-y-1.5 border-b border-outline-variant px-3 py-2">
+      <div className="shrink-0 border-b border-outline-variant px-3 py-2">
         <button
           type="button"
           className={`btn w-full justify-center ${empty ? 'btn-primary' : ''}`}
-          title={AI_CALL_TITLE}
+          // The standing paragraph this replaced was three lines of the rail,
+          // permanently, for a button most people press once.
+          title={`Reads your current resume and proposes records to confirm. ${AI_CALL_TITLE}. Up to a minute.`}
           disabled={importing}
           onClick={onImport}
         >
           <AiSpark />
           {importing ? 'Reading your resume…' : 'Import from my resume'}
         </button>
-        <p className="font-mono text-data text-on-surface-variant">
-          Claude reads your current resume and proposes records for you to confirm. Takes up to a
-          minute.
-        </p>
       </div>
 
       <p id="bank-drag-hint" className="sr-only">

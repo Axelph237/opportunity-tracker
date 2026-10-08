@@ -266,7 +266,7 @@ describe('Builder / the coverage feedback loop', () => {
     await setup({ draft: { ...DRAFT, job_post_id: null }, jobPost: null })
     await waitFor(() => expect(api.jobPost).not.toHaveBeenCalled())
     expect(api.draftCoverage).not.toHaveBeenCalled()
-    expect(screen.getByRole('textbox', { name: /the ad/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /paste the job ad/i })).toBeInTheDocument()
   })
 
   it('attaches a pasted ad to the draft', async () => {
@@ -274,12 +274,16 @@ describe('Builder / the coverage feedback loop', () => {
     api.createJobPost.mockResolvedValue(JOB_POST)
     await setup({ draft: { ...DRAFT, job_post_id: null }, jobPost: null })
 
-    await user.type(screen.getByRole('textbox', { name: /role/i }), 'Intern')
-    await user.type(screen.getByRole('textbox', { name: /the ad/i }), 'We need Qiskit.')
-    await user.click(screen.getByRole('button', { name: /save the ad/i }))
+    await user.click(screen.getByRole('button', { name: /paste the job ad/i }))
+    const panel = await screen.findByRole('dialog')
+    await user.type(within(panel).getByRole('textbox', { name: /role/i }), 'Intern')
+    await user.type(within(panel).getByRole('textbox', { name: /the ad/i }), 'We need Qiskit.')
+    await user.click(within(panel).getByRole('button', { name: /save the ad/i }))
 
     await waitFor(() => expect(api.createJobPost).toHaveBeenCalled())
     expect(api.updateDraft).toHaveBeenCalledWith(9, { job_post_id: 4 })
+    // The panel closes itself once the ad is stored.
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 })
 
@@ -564,13 +568,24 @@ describe('Builder / adding into a group', () => {
 })
 
 describe('Builder / naming the resume', () => {
-  it('renames the open draft, and shows the new name in the switcher', async () => {
-    const user = userEvent.setup()
-    api.updateDraft.mockResolvedValue({ ...DRAFT, name: 'ML Engineer, Argonne' })
-    api.drafts.mockResolvedValue([{ ...DRAFT, name: 'ML Engineer, Argonne' }])
+  const openRename = async (user) => {
+    await user.click(screen.getByRole('button', { name: 'Rename this resume' }))
+    return screen.getByRole('textbox', { name: 'Resume name' })
+  }
+
+  it('shows a switcher and a rename control, not two fields holding the name', async () => {
     await setup()
 
-    const field = screen.getByRole('textbox', { name: 'Resume name' })
+    expect(screen.getByRole('button', { name: /switch resume/i })).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Resume name' })).not.toBeInTheDocument()
+  })
+
+  it('renames the open draft', async () => {
+    const user = userEvent.setup()
+    api.updateDraft.mockResolvedValue({ ...DRAFT, name: 'ML Engineer, Argonne' })
+    await setup()
+
+    const field = await openRename(user)
     await user.clear(field)
     await user.type(field, 'ML Engineer, Argonne')
     fireEvent.blur(field)
@@ -581,9 +596,10 @@ describe('Builder / naming the resume', () => {
   })
 
   it('writes nothing when the field is left at the name it already had', async () => {
+    const user = userEvent.setup()
     await setup()
 
-    fireEvent.blur(screen.getByRole('textbox', { name: 'Resume name' }))
+    fireEvent.blur(await openRename(user))
 
     expect(api.updateDraft).not.toHaveBeenCalled()
   })
@@ -592,19 +608,33 @@ describe('Builder / naming the resume', () => {
     const user = userEvent.setup()
     await setup()
 
-    const field = screen.getByRole('textbox', { name: 'Resume name' })
+    const field = await openRename(user)
     await user.clear(field)
     fireEvent.blur(field)
 
     expect(api.updateDraft).not.toHaveBeenCalled()
   })
+
+  it('discards an edit abandoned with escape', async () => {
+    const user = userEvent.setup()
+    await setup()
+
+    const field = await openRename(user)
+    await user.clear(field)
+    await user.type(field, 'Half typed')
+    fireEvent.keyDown(field, { key: 'Escape' })
+    fireEvent.blur(field)
+
+    expect(api.updateDraft).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /switch resume/i })).toBeInTheDocument()
+  })
 })
 
 describe('Builder / the contact details', () => {
   const FILLED = {
-    name: 'Aiden King',
+    name: 'Jordan Reyes',
     location: 'Chicago, IL',
-    email: 'aidenk@uchicago.edu',
+    email: 'morgan@example.edu',
     phone: '',
     links: [{ label: 'github.com/me', url: 'https://github.com/me' }],
   }
@@ -612,31 +642,31 @@ describe('Builder / the contact details', () => {
   it('prints the stored details at the top of the canvas, where they land', async () => {
     await setup({ contact: FILLED })
 
-    expect(await screen.findByText('Aiden King')).toBeInTheDocument()
-    expect(screen.getByText('Chicago, IL · aidenk@uchicago.edu')).toBeInTheDocument()
+    expect(await screen.findByText('Jordan Reyes')).toBeInTheDocument()
+    expect(screen.getByText('Chicago, IL · morgan@example.edu')).toBeInTheDocument()
     expect(screen.getByText('github.com/me')).toBeInTheDocument()
   })
 
   it('says so when there are none, rather than printing an empty heading', async () => {
     await setup()
 
-    expect(await screen.findByText(/no name or contact details yet/i)).toBeInTheDocument()
+    expect(await screen.findByText(/add your name and contact details/i)).toBeInTheDocument()
   })
 
   it('saves what the form collects', async () => {
     const user = userEvent.setup()
-    api.saveResumeContact.mockResolvedValue({ ...CONTACT, name: 'Aiden King' })
+    api.saveResumeContact.mockResolvedValue({ ...CONTACT, name: 'Jordan Reyes' })
     api.draft.mockResolvedValue(DRAFT)
     await setup()
 
-    await user.click(await screen.findByText(/no name or contact details yet/i))
+    await user.click(await screen.findByText(/add your name and contact details/i))
     const panel = await screen.findByRole('dialog')
-    await user.type(within(panel).getByRole('textbox', { name: 'Name' }), 'Aiden King')
+    await user.type(within(panel).getByRole('textbox', { name: 'Name' }), 'Jordan Reyes')
     await user.click(within(panel).getByRole('button', { name: /save contact details/i }))
 
     await waitFor(() =>
       expect(api.saveResumeContact).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'Aiden King' }),
+        expect.objectContaining({ name: 'Jordan Reyes' }),
       ),
     )
   })

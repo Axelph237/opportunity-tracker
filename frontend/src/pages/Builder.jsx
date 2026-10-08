@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import BankEntryForm from '../components/BankEntryForm'
 import BankRail from '../components/BankRail'
 import ContactForm from '../components/ContactForm'
-import CoveragePanel from '../components/CoveragePanel'
+import CoveragePanel, { JobAdForm } from '../components/CoveragePanel'
 import DraftCanvas from '../components/DraftCanvas'
 import Dropdown from '../components/Dropdown'
 import PageLayout from '../components/PageLayout'
@@ -10,7 +10,7 @@ import ProposalReview from '../components/ProposalReview'
 import SlidePanel from '../components/SlidePanel'
 import { ResizeHandle, usePanelSize } from '../components/Resizable'
 import { useConfirm } from '../components/ConfirmDialog'
-import { PlusIcon } from '../components/icons'
+import { EditIcon, PlusIcon } from '../components/icons'
 import { api } from '../api'
 
 const BANK_WIDTH = { default: 240, min: 180, max: 420 }
@@ -132,6 +132,10 @@ export default function Builder() {
   const [importPreview, setImportPreview] = useState(null)
   const [contact, setContact] = useState(null)
   const [editingContact, setEditingContact] = useState(false)
+  const [renaming, setRenaming] = useState(false)
+  // Escape unmounts the field, and the blur it fires must not commit.
+  const cancelRename = useRef(false)
+  const [editingAd, setEditingAd] = useState(false)
   const [editing, setEditing] = useState(null)
   const [draggingEntry, setDraggingEntry] = useState(null)
   const [focusedPlacement, setFocusedPlacement] = useState(null)
@@ -302,6 +306,7 @@ export default function Builder() {
   const saveJobPost = (body) =>
     act(async () => {
       const post = await api.createJobPost(body)
+      setEditingAd(false)
       setJobPost(post)
       const saved = await api.updateDraft(draft.id, { job_post_id: post.id })
       setDraft((current) => ({ ...current, ...saved }))
@@ -439,24 +444,47 @@ export default function Builder() {
 
   const actions = (
     <>
-      {draft ? (
+      {/* One position, two modes. Showing the name in a field beside a
+          switcher that also showed it read as two inputs for the same thing. */}
+      {renaming && draft ? (
         <input
-          key={draft.id}
+          autoFocus
           className="field w-56"
           defaultValue={draft.name}
           aria-label="Resume name"
-          title="Rename this resume"
-          onBlur={(event) => renameDraft(event.target.value.trim())}
-          onKeyDown={(event) => event.key === 'Enter' && event.target.blur()}
+          onBlur={(event) => {
+            if (!cancelRename.current) renameDraft(event.target.value.trim())
+            cancelRename.current = false
+            setRenaming(false)
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.target.blur()
+            if (event.key === 'Escape') {
+              cancelRename.current = true
+              event.target.blur()
+            }
+          }}
         />
+      ) : (
+        <Dropdown
+          value={draftId ?? ''}
+          onChange={(value) => setDraftId(value ? Number(value) : null)}
+          options={drafts.map((row) => ({ value: row.id, label: row.name }))}
+          ariaLabel="Switch resume"
+          className="w-56"
+        />
+      )}
+      {draft && !renaming ? (
+        <button
+          type="button"
+          className="btn"
+          aria-label="Rename this resume"
+          title="Rename this resume"
+          onClick={() => setRenaming(true)}
+        >
+          <EditIcon />
+        </button>
       ) : null}
-      <Dropdown
-        value={draftId ?? ''}
-        onChange={(value) => setDraftId(value ? Number(value) : null)}
-        options={drafts.map((row) => ({ value: row.id, label: row.name }))}
-        ariaLabel="Switch resume"
-        className="w-48"
-      />
       <button type="button" className="btn" onClick={createDraft} disabled={busy} title="Start another resume">
         <PlusIcon />
         New
@@ -582,7 +610,7 @@ export default function Builder() {
                 busy={busy}
                 extracting={extracting}
                 generating={generating}
-                onSaveJobPost={saveJobPost}
+                onAddJobPost={() => setEditingAd(true)}
                 onExtract={extractKeywords}
                 onLocate={setFocusedPlacement}
                 onTailor={tailor}
@@ -611,6 +639,15 @@ export default function Builder() {
             onCancel={() => setEditing(null)}
           />
         ) : null}
+      </SlidePanel>
+
+      <SlidePanel
+        open={editingAd}
+        onClose={() => setEditingAd(false)}
+        title="The job ad"
+        subtitle="Its wording is what the coverage panel measures against."
+      >
+        {editingAd ? <JobAdForm onSave={saveJobPost} busy={busy} /> : null}
       </SlidePanel>
 
       <SlidePanel

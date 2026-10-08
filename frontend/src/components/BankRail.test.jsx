@@ -56,13 +56,15 @@ describe('BankRail / an empty bank', () => {
 })
 
 describe('BankRail / the import', () => {
-  it('marks it as a Claude call and says how long it may take', () => {
+  it('marks it as a Claude call, says what it does and how long it may take', () => {
     setup()
-    expect(screen.getByRole('button', { name: /import from my resume/i })).toHaveAttribute(
-      'title',
-      'Runs a Claude call',
-    )
-    expect(screen.getByText(/takes up to a minute/i)).toBeInTheDocument()
+
+    // All three facts ride on the button. They used to stand as a paragraph
+    // under it, taking three lines of the rail for the life of the session.
+    const title = screen.getByRole('button', { name: /import from my resume/i }).getAttribute('title')
+    expect(title).toMatch(/proposes records to confirm/i)
+    expect(title).toMatch(/runs a claude call/i)
+    expect(title).toMatch(/up to a minute/i)
   })
 
   it('blocks a second import while the first is still reading', () => {
