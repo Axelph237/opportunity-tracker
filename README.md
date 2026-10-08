@@ -25,8 +25,8 @@ It runs entirely on your own machine. Your resume never leaves it.
   - [Using it](#using-it)
     - [Your shortlist](#your-shortlist)
     - [Checking your fit](#checking-your-fit)
-    - [Building a resume from your experience](#building-a-resume-from-your-experience)
-    - [Writing your resume](#writing-your-resume)
+    - [Composing a resume from your experience](#composing-a-resume-from-your-experience)
+    - [Writing the document](#writing-the-document)
     - [The bigger picture](#the-bigger-picture)
     - [Tracking applications](#tracking-applications)
     - [Managing sources](#managing-sources)
@@ -200,9 +200,14 @@ The diamond in the table's **Fit** column shows which listings already have advi
 saved (◆) and which do not (◇). Advice is cached, so reopening it is instant.
 Upload a new resume and older advice is flagged stale with a button to refresh it.
 
-### Building a resume from your experience
+### Composing a resume from your experience
 
-**Builder** is for the part that happens before the LaTeX. You keep your
+**Resumes** holds every resume you have, and each one has two sides. **Compose**
+builds it out of your experience records against a job ad. **Source** is the
+LaTeX it becomes. The toggle at the top switches between them without losing
+your place, and the list on the left is the same list either way.
+
+Composing is for the part that happens before the LaTeX. You keep your
 experience as individual records, and build one resume per job ad out of them
 rather than editing last month's copy down.
 
@@ -242,12 +247,16 @@ the ones you want and leave the rest. It can only move, drop and reword what is
 already in your bank. There is no operation that invents a record, so it cannot
 give you experience you did not enter.
 
-**Push to resume** writes the draft out as a LaTeX version in **Resumes**,
-where it compiles to a PDF like any other. Push again after more edits and it
-updates the same version, unless you have hand-edited that version in the
-meantime, in which case it stops and shows you what it would overwrite.
+**Push to resume** writes the draft out as the document, which compiles to a
+PDF like any other. The **Preview** tab beside the coverage panel pushes and
+renders in one go, so you can see the page without leaving what you are doing.
 
-### Writing your resume
+Because a composed resume is rewritten from the canvas on every push, its
+source is read-only. A banner says so and offers the two ways on: open the
+canvas, or **detach**. Detaching deletes nothing. The document carries on
+without the canvas, and the canvas version stays as its own resume.
+
+### Writing the document
 
 **Resumes** is a LaTeX editor with the rendered PDF beside it. Type, and it saves
 and re-renders on its own once you stop; **PDF** downloads whatever is currently

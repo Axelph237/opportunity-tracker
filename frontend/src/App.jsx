@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
+import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import Applications from './pages/Applications'
 import Builder from './pages/Builder'
 import Insights from './pages/Insights'
@@ -20,8 +20,10 @@ import { formatDateTime, relativeTime } from './format'
 const NAV = [
   { to: '/opportunities', label: 'Opportunities', icon: 'opportunities', badge: 'opportunities' },
   { to: '/applications', label: 'Applications', icon: 'applications', badge: 'applications' },
-  { to: '/resumes', label: 'Resumes', icon: 'resumes', badge: 'resumes' },
-  { to: '/builder', label: 'Builder', icon: 'builder' },
+  // One entry. Compose and Source are two surfaces onto the same resume, and
+  // the toggle in the header moves between them; two sidebar entries made
+  // them look like two places to keep two different things.
+  { to: '/resumes', label: 'Resumes', icon: 'resumes', badge: 'resumes', match: ['/builder'] },
   { to: '/insights', label: 'Role analysis', icon: 'insights' },
   { to: '/sources', label: 'Sources', icon: 'sources', badge: 'pending_proposals' },
   { to: '/settings', label: 'Settings', icon: 'settings' },
@@ -47,7 +49,11 @@ const NAV_ICON_THRESHOLD = 140
  * tile rather than the left bar, which on a centred square would push the
  * icon off its own centre by the width of the border.
  */
-const navLinkClass = (iconOnly) => ({ isActive }) =>
+const navLinkClass = (iconOnly, alsoActive = false) => ({ isActive: routeActive }) => {
+  // `match` lets one entry own more than one route. Compose lives at
+  // /builder but is a surface of the resume the entry already names.
+  const isActive = routeActive || alsoActive
+  return (
   iconOnly
     ? `mx-auto flex h-10 w-10 items-center justify-center rounded transition-colors ${
         isActive
@@ -59,8 +65,11 @@ const navLinkClass = (iconOnly) => ({ isActive }) =>
           ? 'border-l-2 border-primary bg-secondary-container text-on-secondary-container'
           : 'border-l-2 border-transparent text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
       }`
+  )
+}
 
 export default function App() {
+  const location = useLocation()
   const [stats, setStats] = useState(null)
   const [status, setStatus] = useState(null)
   const [offline, setOffline] = useState(null)
@@ -186,7 +195,10 @@ export default function App() {
                 <NavLink
                   to={item.to}
                   aria-label={navCollapsed ? item.label : undefined}
-                  className={navLinkClass(navCollapsed)}
+                  className={navLinkClass(
+                    navCollapsed,
+                    (item.match || []).some((path) => location.pathname.startsWith(path)),
+                  )}
                   // Off, so the browser does not start its own drag of the URL
                   // and the enclosing item becomes the drag source instead.
                   draggable={false}

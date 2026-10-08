@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import LatexEditor from '../components/LatexEditor'
 import LatexIssues from '../components/LatexIssues'
 import PageLayout from '../components/PageLayout'
 import PdfPreview from '../components/PdfPreview'
+import ResumeLibraryRail from '../components/ResumeLibraryRail'
+import SurfaceToggle from '../components/SurfaceToggle'
 import ResumeAssets from '../components/ResumeAssets'
 import ResumeRecommendations from '../components/ResumeRecommendations'
 import { ResizeHandle, usePanelSize } from '../components/Resizable'
@@ -40,71 +42,6 @@ function SaveState({ saving, dirty, savedAt }) {
   return null
 }
 
-/**
- * Every resume you have, composed or written. Width and framing are the
- * parent's business.
- *
- * A row with nothing pushed yet has no document to open here, so it is a link
- * to the canvas it does live on rather than a dead selection.
- */
-function ResumeRail({ rows, selectedId, onSelect, onCreate, busy }) {
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between gap-2 border-b border-outline-variant px-3 py-2">
-        <span className="label-data">Versions</span>
-        <button type="button" className="btn" onClick={onCreate} disabled={busy} title="New resume">
-          <PlusIcon />
-          New
-        </button>
-      </div>
-      <ul className="min-h-0 flex-1 overflow-y-auto">
-        {rows.map((row) => {
-          const selected = row.pushed && row.instance_id === selectedId
-          const frame = `block w-full border-b border-outline-variant/60 px-3 py-2.5 text-left transition-colors ${
-            selected
-              ? 'border-l-2 border-l-primary bg-secondary-container pl-[10px] text-on-secondary-container'
-              : 'border-l-2 border-l-transparent pl-[10px] hover:bg-surface-container-high'
-          }`
-          const title = (
-            <span className="flex items-center gap-1.5">
-              <span className="line-clamp-1 flex-1 text-on-surface">{row.name}</span>
-              {row.composed ? (
-                <NavIcon name="builder" className="h-3.5 w-3.5 shrink-0 text-on-surface-variant" />
-              ) : null}
-              {row.is_default ? <StarIcon className="h-3.5 w-3.5 shrink-0 text-primary" /> : null}
-            </span>
-          )
-          const caption = row.pushed
-            ? [row.linked_count ? `${row.linked_count} linked` : 'unlinked',
-               row.has_pdf && !row.compile_ok ? 'errors' : null].filter(Boolean).join(' · ')
-            : 'on the canvas, not pushed'
-
-          return (
-            <li key={row.key}>
-              {row.pushed ? (
-                <button type="button" onClick={() => onSelect(row.instance_id)}
-                        aria-current={selected} className={frame}>
-                  {title}
-                  <span className="mt-0.5 block font-mono text-data text-on-surface-variant">
-                    {caption}
-                  </span>
-                </button>
-              ) : (
-                <Link to={`/builder?draft=${row.draft_id}`} className={frame}
-                      title="Nothing has been pushed from this yet. Open the canvas.">
-                  {title}
-                  <span className="mt-0.5 block font-mono text-data text-on-surface-variant">
-                    {caption}
-                  </span>
-                </Link>
-              )}
-            </li>
-          )
-        })}
-      </ul>
-    </div>
-  )
-}
 
 /**
  * Which resume the editor should open.
@@ -123,6 +60,7 @@ export default function Resumes({ onMutate }) {
   // with a document behind them; the rest link to the canvas.
   const [instances, setInstances] = useState([])
   const [params] = useSearchParams()
+  const navigate = useNavigate()
   const [selectedId, setSelectedId] = useState(null)
   const [instance, setInstance] = useState(null)
   const [source, setSource] = useState('')
@@ -334,6 +272,18 @@ export default function Resumes({ onMutate }) {
     })
   }
 
+  /**
+   * Open a row from the shared rail.
+   *
+   * A draft nobody has pushed has no document for this surface to show, so it
+   * opens on the canvas instead. The rail is the same on both; only what a
+   * row means differs.
+   */
+  const openRow = (row) => {
+    if (row.pushed) setSelectedId(row.instance_id)
+    else navigate(`/builder?draft=${row.draft_id}`)
+  }
+
   const rename = (name) => {
     if (!instance || name === instance.name) return
     act(async () => {
@@ -413,7 +363,7 @@ export default function Resumes({ onMutate }) {
     <PageLayout
       title="Resumes"
       icon="resumes"
-      description="Tailored versions of your resume, written in LaTeX and rendered here."
+      description="The document itself, in LaTeX, rendered beside what you are writing."
       error={error}
       scroll={false}
       padded={false}
@@ -450,6 +400,7 @@ export default function Resumes({ onMutate }) {
       actions={
         instance ? (
           <>
+            <SurfaceToggle active="source" draftId={instance.draft_id} instanceId={instance.id} />
             <SaveState saving={saving} dirty={dirty} savedAt={instance.updated_at} />
             <button
               type="button"
@@ -487,10 +438,10 @@ export default function Resumes({ onMutate }) {
         {/* Versions above, assets below, with their own draggable divider. */}
         <div className="flex h-full min-h-0 shrink-0 flex-col" style={{ width: railWidth }}>
           <div className="min-h-0 flex-1">
-            <ResumeRail
+            <ResumeLibraryRail
               rows={instances}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
+              selectedKey={selectedId ? `instance:${selectedId}` : null}
+              onSelect={openRow}
               onCreate={() => create(null)}
               busy={busy}
             />

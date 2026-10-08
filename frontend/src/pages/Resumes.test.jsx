@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import Resumes from './Resumes'
 import { ConfirmProvider } from '../components/ConfirmDialog'
 import { api } from '../api'
@@ -115,6 +115,12 @@ const PDFLATEX_ISSUE = {
  * finished — which is exactly the `act(...)` warning. Awaiting the first
  * rendered content here keeps every test below free of that.
  */
+/** Reports the current route, so a test can see where a row sent the user. */
+function Where() {
+  const location = useLocation()
+  return <span data-testid="where">{location.pathname + location.search}</span>
+}
+
 async function setup({ list, instance, links = [], assets = [], engine = ENGINE, route = '/resumes' } = {}) {
   const rows = list ?? [summary()]
   api.resumeLibrary.mockResolvedValue(rows)
@@ -126,6 +132,7 @@ async function setup({ list, instance, links = [], assets = [], engine = ENGINE,
     <MemoryRouter initialEntries={[route]}>
       <ConfirmProvider>
         <Resumes onMutate={() => {}} />
+        <Where />
       </ConfirmProvider>
     </MemoryRouter>,
   )
@@ -490,9 +497,13 @@ describe('Resumes / the rail lists every resume', () => {
   it('lists a draft nobody has pushed, as a way back to the canvas', async () => {
     await setup({ list: [summary(), unpushed()] })
 
-    const link = screen.getByRole('link', { name: /still on the canvas/i })
-    expect(link).toHaveAttribute('href', '/builder?draft=3')
     expect(screen.getByText(/on the canvas, not pushed/i)).toBeInTheDocument()
+
+    // The rail is shared, so a row is always a control. This surface has no
+    // document for an unpushed draft, so opening it goes to the canvas.
+    await userEvent.setup().click(screen.getByRole('button', { name: /still on the canvas/i }))
+
+    expect(screen.getByTestId('where')).toHaveTextContent('/builder?draft=3')
   })
 
   it('never opens the editor on a row with no document behind it', async () => {

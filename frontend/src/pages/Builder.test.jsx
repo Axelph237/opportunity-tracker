@@ -32,6 +32,7 @@ vi.mock('../api', async (importOriginal) => {
       deleteBankBullet: vi.fn(),
       importBank: vi.fn(),
       resumeContact: vi.fn(),
+      resumeLibrary: vi.fn(),
       compileResumeInstance: vi.fn(),
       saveResumeContact: vi.fn(),
       jobPost: vi.fn(),
@@ -106,9 +107,16 @@ const CONTACT = { name: '', location: '', email: '', phone: '', links: [] }
 
 async function setup({
   drafts = [DRAFT], draft = DRAFT, bank = BANK, jobPost = JOB_POST, coverage, proposals = [],
-  contact = CONTACT, route = '/builder',
+  contact = CONTACT, route = '/builder', library,
 } = {}) {
   api.resumeContact.mockResolvedValue(contact)
+  api.resumeLibrary.mockResolvedValue(
+    library ?? drafts.map((row) => ({
+      key: `draft:${row.id}`, draft_id: row.id, instance_id: null, name: row.name,
+      composed: true, pushed: false, has_pdf: false, is_default: false,
+      compile_ok: false, linked_count: 0, updated_at: null,
+    })),
+  )
   api.drafts.mockResolvedValue(drafts)
   api.bankEntries.mockResolvedValue(bank)
   api.draft.mockResolvedValue(draft)
@@ -774,5 +782,41 @@ describe('Builder / seeing the page without leaving', () => {
 
     expect(await screen.findByText(/edited by hand/i)).toBeInTheDocument()
     expect(api.compileResumeInstance).not.toHaveBeenCalled()
+  })
+})
+
+describe('Builder / one surface with two sides', () => {
+  it('offers both sides, with this one selected', async () => {
+    await setup({ draft: { ...DRAFT, resume_instance_id: 12 } })
+
+    const tabs = screen.getAllByRole('tab').filter((tab) => /compose|source/i.test(tab.textContent))
+    expect(tabs.map((tab) => [tab.textContent.trim(), tab.getAttribute('aria-selected')])).toEqual([
+      ['Compose', 'true'],
+      ['Source', 'false'],
+    ])
+  })
+
+  it('disables the side that has nothing behind it, rather than hiding it', async () => {
+    // A control that comes and goes as you move down the list is harder to
+    // find than one that is there and says why it cannot be used.
+    await setup()
+
+    const source = screen.getAllByRole('tab').find((tab) => /source/i.test(tab.textContent))
+    expect(source).toBeDisabled()
+    expect(source).toHaveAttribute('title', expect.stringMatching(/push it/i))
+  })
+
+  it('offers every resume in the switcher, not only the composable ones', async () => {
+    await setup({
+      library: [
+        { key: 'draft:9', draft_id: 9, instance_id: null, name: 'On the canvas', composed: true, pushed: false },
+        { key: 'instance:4', draft_id: null, instance_id: 4, name: 'Written by hand', composed: false, pushed: true },
+      ],
+    })
+
+    const switcher = screen.getByRole('button', { name: /switch resume/i })
+    await userEvent.setup().click(switcher)
+
+    expect(screen.getByRole('option', { name: 'Written by hand' })).toBeInTheDocument()
   })
 })

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import BankEntryForm from '../components/BankEntryForm'
 import BankRail from '../components/BankRail'
 import ContactForm from '../components/ContactForm'
@@ -8,6 +8,7 @@ import DraftCanvas from '../components/DraftCanvas'
 import Dropdown from '../components/Dropdown'
 import PageLayout from '../components/PageLayout'
 import ProposalReview from '../components/ProposalReview'
+import SurfaceToggle from '../components/SurfaceToggle'
 import SlidePanel from '../components/SlidePanel'
 import { ResizeHandle, usePanelSize } from '../components/Resizable'
 import { useConfirm } from '../components/ConfirmDialog'
@@ -130,10 +131,14 @@ export default function Builder() {
   const [coverage, setCoverage] = useState([])
   const [proposal, setProposal] = useState(null)
   const [standing, setStanding] = useState(null)
+  // Every resume, so the switcher here offers the same set the Resumes
+  // rail does rather than only the ones this surface can compose.
+  const [library, setLibrary] = useState([])
   const [importPreview, setImportPreview] = useState(null)
   const [contact, setContact] = useState(null)
   const [editingContact, setEditingContact] = useState(false)
   const [params] = useSearchParams()
+  const navigate = useNavigate()
   const [renaming, setRenaming] = useState(false)
   const [rendering, setRendering] = useState(false)
   const [rendered, setRendered] = useState(null)
@@ -196,15 +201,17 @@ export default function Builder() {
     let cancelled = false
     ;(async () => {
       try {
-        const [draftRows, bankRows, contactRow] = await Promise.all([
+        const [draftRows, bankRows, contactRow, libraryRows] = await Promise.all([
           api.drafts(),
           api.bankEntries(),
           api.resumeContact(),
+          api.resumeLibrary(),
         ])
         if (cancelled) return
         setDrafts(draftRows)
         setBank(bankRows)
         setContact(contactRow)
+        setLibrary(libraryRows)
         // Arriving from a resume picks that resume's draft, not the newest.
         const asked = Number(params.get('draft'))
         const wanted = draftRows.some((row) => row.id === asked) ? asked : null
@@ -302,6 +309,24 @@ export default function Builder() {
       // is now behind. Re-reading the draft is what refreshes that warning.
       if (draftId) setDraft(await api.draft(draftId))
     })
+
+  /**
+   * The switcher offers every resume, not only the composable ones.
+   *
+   * A source-only resume has no canvas, so picking it leaves for the surface
+   * that can open it. Hiding those would make this list quietly different
+   * from the one on the other surface.
+   */
+  const switcherOptions = library.map((row) => ({
+    value: row.composed ? `draft:${row.draft_id}` : `instance:${row.instance_id}`,
+    label: row.name,
+  }))
+
+  const openRow = (value) => {
+    const [kind, id] = String(value).split(':')
+    if (kind === 'draft') setDraftId(Number(id))
+    else navigate(`/resumes?instance=${id}`)
+  }
 
   const createDraft = () =>
     act(async () => {
@@ -473,6 +498,11 @@ export default function Builder() {
 
   const actions = (
     <>
+      <SurfaceToggle
+        active="compose"
+        draftId={draft?.id}
+        instanceId={draft?.resume_instance_id}
+      />
       {/* One position, two modes. Showing the name in a field beside a
           switcher that also showed it read as two inputs for the same thing. */}
       {renaming && draft ? (
@@ -496,9 +526,9 @@ export default function Builder() {
         />
       ) : (
         <Dropdown
-          value={draftId ?? ''}
-          onChange={(value) => setDraftId(value ? Number(value) : null)}
-          options={drafts.map((row) => ({ value: row.id, label: row.name }))}
+          value={draft ? `draft:${draft.id}` : ''}
+          onChange={openRow}
+          options={switcherOptions}
           ariaLabel="Switch resume"
           className="w-56"
         />
@@ -546,7 +576,7 @@ export default function Builder() {
 
   if (loading) {
     return (
-      <PageLayout title="Builder" icon="builder" description="Compose a resume for one job ad.">
+      <PageLayout title="Resumes" icon="resumes" description="Compose a resume for one job ad.">
         <p className="py-6 font-mono text-data text-on-surface-variant">Loading…</p>
       </PageLayout>
     )
@@ -554,9 +584,11 @@ export default function Builder() {
 
   return (
     <PageLayout
-      title="Builder"
-      icon="builder"
-      description="Compose a resume for one job ad out of your experience bank, and watch its keywords go covered."
+      // Titled for the thing, not the surface. One sidebar entry leading to
+      // two differently named pages is what made them read as two places.
+      title="Resumes"
+      icon="resumes"
+      description="Compose this resume out of your experience bank, and watch the ad's keywords go covered."
       error={error}
       scroll={false}
       padded={false}

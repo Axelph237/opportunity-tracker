@@ -37,11 +37,11 @@ const STATS = {
   onboarding_complete: true,
 }
 
-async function setup() {
+async function setup({ route = '/opportunities' } = {}) {
   api.stats.mockResolvedValue(STATS)
   api.scrapeStatus.mockResolvedValue({ running: false, last_run: null, next_run: null })
   render(
-    <MemoryRouter initialEntries={['/opportunities']}>
+    <MemoryRouter initialEntries={[route]}>
       <App />
     </MemoryRouter>,
   )
@@ -196,11 +196,19 @@ describe('App / resizing the sidebar', () => {
     expect(screen.getByText('4')).toBeInTheDocument()
   })
 
-  it('reaches the resume builder, which carries no count of its own', async () => {
-    const user = userEvent.setup()
-    await setup()
-    await user.click(screen.getByRole('link', { name: /Builder/ }))
+  it('keeps the composer reachable, under the one entry that owns both surfaces', async () => {
+    // Compose and Source are two views of one resume, so the sidebar names
+    // the resume once. /builder is still a route; it is not a destination.
+    await setup({ route: '/builder' })
+
     expect(screen.getByText('builder page')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /^Builder$/ })).not.toBeInTheDocument()
+  })
+
+  it('keeps the resumes entry lit while the composer is open', async () => {
+    await setup({ route: '/builder' })
+
+    expect(screen.getByRole('link', { name: /Resumes/ })).toHaveClass('bg-secondary-container')
   })
 })
 
@@ -210,7 +218,6 @@ describe('App / reordering the sidebar', () => {
     '/opportunities',
     '/applications',
     '/resumes',
-    '/builder',
     '/insights',
     '/sources',
     '/settings',
@@ -251,7 +258,6 @@ describe('App / reordering the sidebar', () => {
       '/opportunities',
       '/applications',
       '/resumes',
-      '/builder',
       '/insights',
       '/sources',
     ])
@@ -303,7 +309,6 @@ describe('App / reordering the sidebar', () => {
       '/opportunities',
       '/resumes',
       '/applications',
-      '/builder',
       '/insights',
       '/sources',
       '/settings',
@@ -318,7 +323,9 @@ describe('App / reordering the sidebar', () => {
     fireEvent.keyDown(screen.getByRole('link', { name: /Settings/ }), { key: 'ArrowUp', altKey: true })
     cleanup()
     await setup()
-    expect(order()[5]).toBe('/settings')
+    // One up from last, rather than a fixed index, so adding or removing a
+    // section does not break a test about whether the move was remembered.
+    expect(order().indexOf('/settings')).toBe(order().length - 2)
   })
 
   it('leaves the arrow keys alone without the modifier', async () => {
