@@ -404,6 +404,33 @@ def test_whoever_resolves_a_proposal_first_decides_what_it_did(app_client, monke
     ]
 
 
+def test_an_edit_that_lands_mid_apply_is_kept(app_client, monkeypatch):
+    """Routes are sync `def`, so the user can save the canvas while an apply is
+    in flight. The apply read the body at the start and stored it at the end,
+    so a save that landed in between vanished with no error anywhere."""
+    draft, _entry, placement = placed(app_client, bullets=("One", "Two"))
+    operation = {"op": "DropBullet", "placement_id": placement["ref"],
+                 "bullet_ref": placement["bullets"][0]["ref"]}
+    proposal_id = make_proposal(draft["id"], [operation])
+    real_check = drafts._check_bank_refs
+    saved = []
+
+    def the_user_saves_the_canvas_meanwhile(accepted, index):
+        if not saved:
+            saved.append(1)
+            body = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]
+            body["sections"][0]["label"] = "Research Experience"
+            app_client.patch(f"/api/drafts/{draft['id']}", json={"body": body})
+        return real_check(accepted, index)
+
+    monkeypatch.setattr(drafts, "_check_bank_refs", the_user_saves_the_canvas_meanwhile)
+    drafts.apply_proposal(proposal_id)
+
+    section = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]["sections"][0]
+    assert section["label"] == "Research Experience"
+    assert [b["text"] for b in section["placements"][0]["bullets"]] == ["Two"]
+
+
 def test_an_applied_proposal_is_marked_applied_and_stops_being_pending(app_client):
     draft, _entry, placement = placed(app_client)
     proposal_id = make_proposal(draft["id"], [

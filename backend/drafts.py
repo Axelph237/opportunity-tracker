@@ -260,29 +260,45 @@ def delete_draft(draft_id: int) -> None:
             raise DraftNotFound(f"Draft {draft_id} not found")
 
 
-def _write_body(draft_id: int, body: dict) -> dict[str, Any]:
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE resume_drafts SET body = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(body), _now(), draft_id),
-        )
-    return get_draft(draft_id)
+def _mutate_body(conn: sqlite3.Connection, draft_id: int, change: Callable[[dict], None]) -> None:
+    """Read, change and store a draft body without leaving the transaction.
+
+    The read has to happen under the caller's write lock. Reading the body at
+    the start of a request and storing it at the end let an edit that landed
+    in between disappear, with nothing anywhere saying so. The change runs
+    against the in-memory body and is stored once, so an operation that fails
+    half way through rolls the whole request back rather than leaving a draft
+    partly rewritten.
+    """
+    row = conn.execute("SELECT body FROM resume_drafts WHERE id = ?", (draft_id,)).fetchone()
+    if row is None:
+        raise DraftNotFound(f"Draft {draft_id} not found")
+    body = _json_value(row["body"], {"sections": []})
+    body.setdefault("sections", [])
+    change(body)
+    conn.execute(
+        "UPDATE resume_drafts SET body = ?, updated_at = ? WHERE id = ?",
+        (json.dumps(body), _now(), draft_id),
+    )
 
 
 def place_entry(draft_id: int, entry_id: int, *, section_ref: Optional[str] = None) -> dict[str, Any]:
     """Snapshot a bank record into a draft."""
-    # Both open their own connections, so they resolve before the write below.
-    draft = get_draft(draft_id)
+    # Opens its own connection, so it resolves before the write below.
     entry = bank.get_entry(entry_id)
-
-    body = draft["body"]
     layout = bank.layout_for(entry.get("kind"))
-    section = (
-        _locate_section(body, section_ref) if section_ref
-        else _section_for(body, layout.default_section, layout)
-    )
-    section.setdefault("placements", []).append(_snapshot(entry))
-    return _write_body(draft_id, body)
+    snapshot = _snapshot(entry)
+
+    def place(body: dict) -> None:
+        section = (
+            _locate_section(body, section_ref) if section_ref
+            else _section_for(body, layout.default_section, layout)
+        )
+        section.setdefault("placements", []).append(snapshot)
+
+    with get_db() as conn:
+        _mutate_body(conn, draft_id, place)
+    return get_draft(draft_id)
 
 
 # ------------------------------------------------------------ the op algebra
@@ -441,12 +457,9 @@ def apply_proposal(proposal_id: int, operations: Optional[list[dict]] = None) ->
         index = _bank_index(conn)
     _check_bank_refs(accepted, index)
 
-    # The whole run happens against the in-memory body and is stored once, at
-    # the end. An operation naming a ref an earlier one removed therefore
-    # raises with the stored draft untouched, rather than half-changed.
-    body = draft["body"]
-    for op in accepted:
-        OPERATIONS[op["op"]](body, op, index)
+    def run(body: dict) -> None:
+        for op in accepted:
+            OPERATIONS[op["op"]](body, op, index)
 
     with get_db() as conn:
         # Compare-and-set rather than a plain UPDATE: two calls racing on the
@@ -457,10 +470,7 @@ def apply_proposal(proposal_id: int, operations: Optional[list[dict]] = None) ->
             (_now(), json.dumps(reviewed), proposal_id),
         ).rowcount
         if claimed:
-            conn.execute(
-                "UPDATE resume_drafts SET body = ?, updated_at = ? WHERE id = ?",
-                (json.dumps(body), _now(), draft["id"]),
-            )
+            _mutate_body(conn, draft["id"], run)
     return get_draft(draft["id"])
 
 
