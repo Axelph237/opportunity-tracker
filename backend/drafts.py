@@ -483,8 +483,11 @@ def sync_proposal(draft_id: int) -> Optional[dict[str, Any]]:
     deliberately tailored has moved away from the bank on purpose and is not
     out of date.
 
-    Convergent. Running it again replaces the standing offer with the current
-    one, and withdraws it entirely once nothing differs.
+    Convergent. Running it again on an unchanged draft hands back the standing
+    offer unchanged, replaces it once the drift behind it moves, and withdraws
+    it entirely when nothing differs. The list endpoint runs this on every
+    read, so an offer that were re-minted each time would 404 the id the client
+    is holding the moment the list refreshed under it.
     """
     draft = get_draft(draft_id)
     with get_db() as conn:
@@ -507,6 +510,14 @@ def sync_proposal(draft_id: int) -> Optional[dict[str, Any]]:
             })
 
     with get_db() as conn:
+        standing = conn.execute(
+            """SELECT * FROM draft_proposals
+               WHERE draft_id = ? AND kind = 'sync' AND status = 'pending'
+               ORDER BY id DESC""",
+            (draft_id,),
+        ).fetchone()
+        if standing is not None and proposal_dict(standing)["operations"] == ops:
+            return proposal_dict(standing)
         conn.execute(
             "DELETE FROM draft_proposals WHERE draft_id = ? AND kind = 'sync' AND status = 'pending'",
             (draft_id,),

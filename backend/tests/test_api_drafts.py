@@ -276,6 +276,52 @@ def test_reading_the_proposal_list_refreshes_the_drift_check(app_client):
     assert [proposal["kind"] for proposal in listed] == ["sync"]
 
 
+def test_reading_the_list_twice_offers_the_same_proposal_both_times(app_client):
+    """The drift check runs on read. Re-minting the row would hand the second
+    reader a different id for an offer that has not changed."""
+    draft = make_draft(app_client)
+    entry = make_entry(app_client, bullets=["Assisted with the rig"])
+    drafts.place_entry(draft["id"], entry["id"])
+    app_client.patch(f"/api/bank/bullets/{entry['bullets'][0]['id']}", json={"text": "Rebuilt the rig"})
+
+    first = app_client.get(f"/api/drafts/{draft['id']}/proposals").json()
+    second = app_client.get(f"/api/drafts/{draft['id']}/proposals").json()
+
+    assert first == second
+
+
+def test_an_offer_survives_the_read_that_follows_it(app_client):
+    """The client lists, the user clicks apply, and the list refreshes
+    underneath. The id they are holding has to still resolve."""
+    draft = make_draft(app_client)
+    entry = make_entry(app_client, bullets=["Assisted with the rig"])
+    drafts.place_entry(draft["id"], entry["id"])
+    app_client.patch(f"/api/bank/bullets/{entry['bullets'][0]['id']}", json={"text": "Rebuilt the rig"})
+    proposal_id = app_client.get(f"/api/drafts/{draft['id']}/proposals").json()[0]["id"]
+
+    app_client.get(f"/api/drafts/{draft['id']}/proposals")
+
+    assert resolve(app_client, proposal_id).status_code == 200
+    assert only_placement(app_client, draft["id"])["bullets"][0]["text"] == "Rebuilt the rig"
+
+
+def test_a_changed_drift_set_replaces_the_standing_offer(app_client):
+    """Stability is for an unchanged draft. An offer whose contents moved on is
+    a different offer, and applying the old one would write stale text."""
+    draft = make_draft(app_client)
+    entry = make_entry(app_client, bullets=["Assisted with the rig"])
+    drafts.place_entry(draft["id"], entry["id"])
+    bullet_id = entry["bullets"][0]["id"]
+    app_client.patch(f"/api/bank/bullets/{bullet_id}", json={"text": "Rebuilt the rig"})
+    first = app_client.get(f"/api/drafts/{draft['id']}/proposals").json()[0]
+
+    app_client.patch(f"/api/bank/bullets/{bullet_id}", json={"text": "Rebuilt the beamline rig"})
+    second = app_client.get(f"/api/drafts/{draft['id']}/proposals").json()
+
+    assert [p["id"] for p in second] != [first["id"]]
+    assert [op["text"] for op in second[0]["operations"]] == ["Rebuilt the beamline rig"]
+
+
 # ------------------------------------------------------------ the op algebra
 
 def placed(client, bullets=("One", "Two")) -> tuple[dict, dict, dict]:
