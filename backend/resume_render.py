@@ -45,11 +45,11 @@ _ESCAPE_TABLE = str.maketrans(
 _URL_TABLE = str.maketrans(
     {
         "\\": r"\%5C",
+        "{": r"\%7B",
+        "}": r"\%7D",
         "&": r"\&",
         "%": r"\%",
         "#": r"\#",
-        "{": r"\{",
-        "}": r"\}",
     }
 )
 

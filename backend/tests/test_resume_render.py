@@ -97,6 +97,15 @@ def test_a_url_escapes_the_characters_tex_would_act_on():
     assert r"\href{https://jobs.example.org/apply?id=7\&src=resume\#top}" in rendered
 
 
+def test_a_url_percent_encodes_the_characters_tex_cannot_hand_through():
+    """`\{` reaches hyperref as a backslash and a brace, so the link it makes
+    is an address that does not exist. The percent form survives, the way the
+    backslash already does."""
+    rendered = render(placement(kind="project", title="Oracle", url=r"https://ex.com/{a}\b"))
+
+    assert r"\href{https://ex.com/\%7Ba\%7D\%5Cb}" in rendered
+
+
 # ------------------------------------------------------- layout off the registry
 
 def test_an_experience_fills_the_four_argument_subheading_in_the_right_order():
