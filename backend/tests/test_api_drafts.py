@@ -1043,15 +1043,20 @@ def test_a_term_buried_inside_a_longer_word_does_not_count_as_covered(app_client
     assert report["keywords"][0]["hits"] == 1
 
 
-def test_a_term_hiding_in_a_repo_url_does_not_count_as_covered():
-    """Verified against the real regex chain upstream: a project linking to
-    github.com/me/pytorch-oracle would otherwise claim PyTorch."""
-    body = {"sections": [{"ref": "s", "label": "Projects", "placements": [
-        {"ref": "p", "kind": "project", "title": "Oracle", "detail": "Rust",
-         "url": "https://github.com/me/pytorch-oracle", "bullets": []},
-    ]}]}
+def test_a_term_hiding_in_a_repo_url_does_not_count_as_covered(app_client):
+    """A project linking to github.com/me/pytorch-oracle would otherwise claim
+    PyTorch, which is the report telling the user the resume says something it
+    does not say."""
+    post_id = job_post([{"term": "PyTorch"}])
+    draft = make_draft(app_client, job_post_id=post_id)
+    entry = make_entry(app_client, kind="project", title="Oracle", detail="Rust",
+                       url="https://github.com/me/pytorch-oracle", bullets=["Shipped it"])
+    drafts.place_entry(draft["id"], entry["id"])
 
-    assert drafts.draft_segments(body) == [("p", "Oracle Rust")]
+    report = app_client.get(f"/api/drafts/{draft['id']}/coverage").json()
+
+    assert [term["covered"] for term in report["keywords"]] == [False]
+    assert report["covered"] == 0
 
 
 def test_a_segment_carries_the_entrys_own_words_and_its_bullets():
