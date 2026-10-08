@@ -77,6 +77,39 @@ def test_a_draft_whose_stored_body_is_not_a_document_refuses_to_be_read(app_clie
         drafts.get_draft(draft["id"])
 
 
+def test_one_corrupt_draft_does_not_take_the_list_down_with_it(app_client):
+    """Every healthy draft is reachable only through the picker, so a list
+    that dies on one bad row leaves them intact and unreachable. Nothing a
+    push writes comes from here; every write re-reads the body strictly."""
+    good = make_draft(app_client, name="Still fine")
+    bad = make_draft(app_client, name="Damaged")
+    with database.get_db() as conn:
+        conn.execute("UPDATE resume_drafts SET body = '{not json' WHERE id = ?", (bad["id"],))
+
+    listed = app_client.get("/api/drafts")
+
+    assert listed.status_code == 200, listed.text
+    assert {row["name"] for row in listed.json()} == {"Still fine", "Damaged"}
+    assert app_client.get(f"/api/drafts/{good['id']}").status_code == 200
+    with pytest.raises(drafts.CorruptDraft):
+        drafts.get_draft(bad["id"])
+
+
+def test_a_proposal_whose_operations_will_not_parse_can_still_be_dismissed(app_client):
+    """Dismissing needs nothing out of that column, and an unreadable
+    proposal is the one the user most needs to be rid of."""
+    draft = make_draft(app_client)
+    proposal_id = make_proposal(draft["id"], [])
+    with database.get_db() as conn:
+        conn.execute("UPDATE draft_proposals SET operations = '{' WHERE id = ?", (proposal_id,))
+
+    response = app_client.post(f"/api/proposals/{proposal_id}/resolve", json={"action": "dismiss"})
+
+    assert response.status_code == 200, response.text
+    listed = app_client.get(f"/api/drafts/{draft['id']}/proposals").json()
+    assert [p["status"] for p in listed] == ["dismissed"]
+
+
 def test_a_proposal_whose_operations_will_not_parse_refuses_to_be_read(app_client):
     draft = make_draft(app_client)
     proposal_id = make_proposal(draft["id"], [])
@@ -542,7 +575,10 @@ def test_a_resolve_records_the_decision_without_rewriting_the_offer(app_client):
     assert [op["accepted"] for op in stored] == [False]
 
 
-def test_an_operation_left_out_of_the_reviewed_set_is_not_applied(app_client):
+def test_a_reviewed_set_that_is_not_the_offered_set_is_refused(app_client):
+    """The answer is the offer with the boxes filled in. A short list is a
+    client that lost track of what it was answering, not a set of rejections
+    the server should guess at."""
     draft, _entry, placement = placed(app_client)
     proposal_id = make_proposal(draft["id"], [
         {"op": "DropBullet", "placement_id": placement["ref"],
@@ -551,12 +587,29 @@ def test_an_operation_left_out_of_the_reviewed_set_is_not_applied(app_client):
          "bullet_ref": placement["bullets"][1]["ref"]},
     ])
 
-    resolve(app_client, proposal_id, operations=[
+    response = resolve(app_client, proposal_id, operations=[
         {"op": "DropBullet", "placement_id": placement["ref"],
          "bullet_ref": placement["bullets"][0]["ref"]},
     ])
 
-    assert [b["text"] for b in only_placement(app_client, draft["id"])["bullets"]] == ["Two"]
+    assert response.status_code == 400, response.text
+    assert [b["text"] for b in only_placement(app_client, draft["id"])["bullets"]] == ["One", "Two"]
+
+
+def test_two_identical_operations_take_their_own_answers(app_client):
+    """Paired by position, because two operations that are identical cannot
+    be told apart by content. Matching on content gave them both whichever
+    answer arrived last, so a box the user unticked was applied anyway."""
+    draft, entry, placement = placed(app_client, bullets=("One",))
+    add = {"op": "AddBullet", "placement_id": placement["ref"],
+           "bullet_id": entry["bullets"][0]["id"]}
+    proposal_id = make_proposal(draft["id"], [dict(add), dict(add)])
+
+    resolve(app_client, proposal_id,
+            operations=[dict(add, accepted=True), dict(add, accepted=False)])
+
+    assert [b["text"] for b in only_placement(app_client, draft["id"])["bullets"]] == ["One", "One"]
+    assert [op["accepted"] for op in drafts.get_proposal(proposal_id)["operations"]] == [True, False]
 
 
 def test_applying_the_same_proposal_twice_changes_nothing_the_second_time(app_client):

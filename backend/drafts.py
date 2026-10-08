@@ -18,6 +18,7 @@ prompt.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -25,11 +26,14 @@ from typing import Any, Callable, Iterator, Optional
 from uuid import uuid4
 
 import bank
+import jobposts
 import keywords
 import resume_render
 import resumes
 from bank import KindLayout
 from database import get_db, get_setting
+
+logger = logging.getLogger(__name__)
 
 MAX_NAME_LENGTH = 120
 
@@ -157,7 +161,7 @@ def _ensure_refs(body: dict) -> dict:
     posted a body with a missing or repeated one would make those rows
     unaddressable, and a proposal would silently act on the wrong line.
     """
-    _complete(body)
+    body = _complete(body)
     seen: set[str] = set()
 
     def fresh(node: dict) -> None:
@@ -241,11 +245,26 @@ def _check_links(conn: sqlite3.Connection, values: dict[str, Any]) -> None:
 
 
 def list_drafts() -> list[dict[str, Any]]:
+    """Every draft, as the picker that chooses between them needs it.
+
+    A row whose body will not parse is listed with an empty one rather than
+    taking the whole collection down. Nothing here can overwrite anything:
+    every path that writes a draft reads its body again, strictly, under its
+    own lock. Losing the list would leave the healthy drafts intact and
+    unreachable, because reaching them goes through it.
+    """
     with get_db() as conn:
         rows = conn.execute(
             "SELECT * FROM resume_drafts ORDER BY updated_at DESC, id DESC"
         ).fetchall()
-    return [draft_dict(row) for row in rows]
+    listed = []
+    for row in rows:
+        try:
+            listed.append(draft_dict(row))
+        except CorruptDraft as exc:
+            logger.warning("Draft %s has an unreadable body: %s", row["id"], exc)
+            listed.append({**dict(row), "body": {"sections": []}})
+    return listed
 
 
 def get_draft(draft_id: int) -> dict[str, Any]:
@@ -435,7 +454,7 @@ def _op_rewrite_bullet(body: dict, op: dict, index: dict) -> None:
     # drift, which is what accepting a sync offer does. A tailoring pass
     # writes something else and has never shown the user what the bank now
     # says, so re-anchoring there would withdraw a decision they were owed.
-    if source is not None and source["text"] == text:
+    if source is not None and source["text"].strip() == text:
         bullet["source_text"] = text
 
 
@@ -494,7 +513,14 @@ def list_proposals(draft_id: int) -> list[dict[str, Any]]:
         rows = conn.execute(
             "SELECT * FROM draft_proposals WHERE draft_id = ? ORDER BY id DESC", (draft_id,)
         ).fetchall()
-    return [proposal_dict(row) for row in rows]
+    listed = []
+    for row in rows:
+        try:
+            listed.append(proposal_dict(row))
+        except CorruptDraft as exc:
+            logger.warning("Proposal %s has unreadable operations: %s", row["id"], exc)
+            listed.append({**dict(row), "operations": []})
+    return listed
 
 
 _NOT_IDENTITY = ("accepted", "rationale")
@@ -522,19 +548,22 @@ def _reviewed(stored: list[dict], submitted: Optional[list[dict]]) -> list[dict]
     rewrite the evidence of the offer in the same write, which makes the audit
     trail a record of what was applied rather than of what was proposed.
 
-    An operation the client leaves out of its list is one the user did not
-    accept.
+    What comes back is the offered list in the offered order, with the accept
+    states filled in. Paired by position rather than by content, because two
+    identical operations are indistinguishable by content: matching on it
+    would hand them both whichever answer arrived last.
     """
     if submitted is None:
         return [dict(op, accepted=op.get("accepted", True)) for op in stored]
-    known = {_identity(op) for op in stored}
-    decided = {}
-    for op in submitted:
-        identity = _identity(op)
-        if identity not in known:
-            raise ValueError(f"A {op.get('op')} operation was not part of this proposal.")
-        decided[identity] = bool(op.get("accepted", True))
-    return [dict(op, accepted=decided.get(_identity(op), False)) for op in stored]
+    if len(submitted) != len(stored):
+        raise ValueError(
+            f"This proposal offered {len(stored)} operations and {len(submitted)} came back."
+        )
+    for offered, answer in zip(stored, submitted):
+        if _identity(offered) != _identity(answer):
+            raise ValueError(f"A {answer.get('op')} operation was not part of this proposal.")
+    return [dict(op, accepted=bool(answer.get("accepted", True)))
+            for op, answer in zip(stored, submitted)]
 
 
 def apply_proposal(proposal_id: int, operations: Optional[list[dict]] = None) -> dict[str, Any]:
@@ -574,14 +603,24 @@ def apply_proposal(proposal_id: int, operations: Optional[list[dict]] = None) ->
 
 
 def dismiss_proposal(proposal_id: int) -> dict[str, Any]:
-    proposal = get_proposal(proposal_id)
+    """Drop a proposal without reading what it offered.
+
+    Deliberately not through `get_proposal`: dismissing needs nothing out of
+    the operations column, and a proposal whose column will not parse is the
+    one the user most needs to be able to get rid of.
+    """
     with get_db() as conn:
+        row = conn.execute(
+            "SELECT draft_id FROM draft_proposals WHERE id = ?", (proposal_id,)
+        ).fetchone()
+        if row is None:
+            raise DraftNotFound(f"Proposal {proposal_id} not found")
         conn.execute(
             """UPDATE draft_proposals SET status = 'dismissed', resolved_at = ?
                WHERE id = ? AND status = 'pending'""",
             (_now(), proposal_id),
         )
-    return get_draft(proposal["draft_id"])
+    return get_draft(row["draft_id"])
 
 
 def sync_proposal(draft_id: int) -> Optional[dict[str, Any]]:
@@ -670,9 +709,10 @@ def coverage_report(draft_id: int) -> dict[str, Any]:
     post_id = draft.get("job_post_id")
     terms: list[dict] = []
     if post_id is not None:
-        with get_db() as conn:
-            row = conn.execute("SELECT keywords FROM job_posts WHERE id = ?", (post_id,)).fetchone()
-        terms = _json_value(row["keywords"] if row else None, [])
+        try:
+            terms = jobposts.get_post(post_id)["keywords"]
+        except jobposts.JobPostNotFound:
+            terms = []
 
     if not terms:
         return {"draft_id": draft_id, "job_post_id": post_id, "covered": 0, "total": 0, "keywords": []}
@@ -715,13 +755,25 @@ def _result(draft: dict, latex: str, *, pushed: bool, diverged: bool) -> dict[st
     }
 
 
+def _would_overwrite(draft: dict, current: Optional[str], latex: str) -> bool:
+    """Whether writing `latex` would discard work nobody can get back.
+
+    Not simply "the variant changed". There is nothing to lose when there is
+    no variant behind the draft, and nothing to lose when the variant already
+    holds exactly what the push would write.
+    """
+    if current is None:
+        return False
+    return current != (draft.get("pushed_latex") or "") and current != latex
+
+
 def render_draft(draft_id: int) -> dict[str, Any]:
     """What a push would write, and whether it would overwrite a hand-edit."""
     draft = get_draft(draft_id)
     latex = _rendered(draft)
     current = _instance_latex(draft.get("resume_instance_id"))
-    diverged = current is not None and current != (draft.get("pushed_latex") or "")
-    return _result(draft, latex, pushed=False, diverged=diverged)
+    return _result(draft, latex, pushed=False,
+                   diverged=_would_overwrite(draft, current, latex))
 
 
 def push_draft(draft_id: int, *, force: bool = False) -> dict[str, Any]:
@@ -745,14 +797,9 @@ def push_draft(draft_id: int, *, force: bool = False) -> dict[str, Any]:
         # `resumes.create_instance` opens connections of its own, so it has to
         # finish before this function opens a write of its own.
         instance_id = resumes.create_instance(draft["name"], latex_source="")["id"]
-    else:
-        untouched = current == (draft.get("pushed_latex") or "")
-        # A variant already holding exactly what we are about to write has no
-        # work in it for the push to discard, hand-edited or not.
-        no_op = current == latex
-        if not (untouched or no_op or force):
-            raise PushConflict(draft_id, instance_id, latex, current,
-                               draft.get("pushed_latex") or "")
+    elif _would_overwrite(draft, current, latex) and not force:
+        raise PushConflict(draft_id, instance_id, latex, current,
+                           draft.get("pushed_latex") or "")
 
     resumes.update_instance(instance_id, {"latex": latex})
     with get_db() as conn:
