@@ -85,7 +85,7 @@ function ImportPreview({ preview, busy, onConfirm, onCancel }) {
                 {entry.bullets?.length ? (
                   <ul className="mt-1 list-disc space-y-0.5 pl-5 text-on-surface-variant marker:text-primary">
                     {entry.bullets.map((bullet, position) => (
-                      <li key={position}>{bullet.text}</li>
+                      <li key={position}>{bullet}</li>
                     ))}
                   </ul>
                 ) : null}
@@ -311,13 +311,9 @@ export default function Builder() {
 
   const confirmImport = (entries) =>
     act(async () => {
-      for (const entry of entries) {
-        const { bullets, ...fields } = entry
-        const created = await api.createBankEntry(fields)
-        for (const bullet of bullets || []) {
-          await api.createBankBullet(created.id, { text: bullet.text })
-        }
-      }
+      // A BankEntryCreate carries its own bullets, as plain strings, so
+      // confirming costs one request per record rather than one per line.
+      for (const entry of entries) await api.createBankEntry(entry)
       await reloadBank()
       setImportPreview(null)
     })

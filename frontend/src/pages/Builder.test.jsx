@@ -239,9 +239,11 @@ describe('Builder / the coverage feedback loop', () => {
 })
 
 describe('Builder / the cold-start import', () => {
+  // `BankImportPreview` is a list of `BankEntryCreate`, whose bullets are
+  // plain strings that travel with the record.
   const PREVIEW = {
     entries: [
-      { kind: 'experience', title: 'Research Assistant', organization: 'Fermilab', bullets: [{ text: 'Built the DAQ pipeline' }] },
+      { kind: 'experience', title: 'Research Assistant', organization: 'Fermilab', bullets: ['Built the DAQ pipeline'] },
       { kind: 'project', title: 'Delphi', organization: null, bullets: [] },
     ],
   }
@@ -253,6 +255,7 @@ describe('Builder / the cold-start import', () => {
 
     await user.click(screen.getByRole('button', { name: /import from my resume/i }))
     expect(await screen.findByText(/nothing is saved until you say so/i)).toBeInTheDocument()
+    expect(screen.getByText('Built the DAQ pipeline', { selector: 'li' })).toBeInTheDocument()
     expect(api.createBankEntry).not.toHaveBeenCalled()
   })
 
@@ -268,10 +271,8 @@ describe('Builder / the cold-start import', () => {
     await user.click(within(panel).getByRole('button', { name: /add 1 to my bank/i }))
 
     await waitFor(() => expect(api.createBankEntry).toHaveBeenCalledTimes(1))
-    expect(api.createBankEntry).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Research Assistant' }),
-    )
-    expect(api.createBankBullet).toHaveBeenCalledWith(50, { text: 'Built the DAQ pipeline' })
+    expect(api.createBankEntry).toHaveBeenCalledWith(PREVIEW.entries[0])
+    expect(api.createBankBullet).not.toHaveBeenCalled()
   })
 })
 
