@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
 import pytest
 
 import bank
 import database
+import main
+import resume_loader
+import tailor
 
 NEW_TABLES = ("bank_entries", "bank_bullets", "job_posts", "resume_drafts", "draft_proposals")
 
@@ -290,3 +294,66 @@ def test_deleting_an_entry_through_the_api_takes_its_bullets_with_it(app_client)
 )
 def test_the_printed_date_string_covers_every_shape_a_record_has(entry, expected):
     assert bank.format_dates(entry) == expected
+
+
+# -------------------------------------------------- importing an existing resume
+
+def stub_import(monkeypatch, payload, captured: dict | None = None) -> None:
+    def _run(prompt, **_kwargs):
+        if captured is not None:
+            captured["prompt"] = prompt
+        return json.dumps(payload)
+
+    monkeypatch.setattr(tailor, "run_claude", _run)
+
+
+ONE_RECORD = {"entries": [{"kind": "experience", "title": "Research Assistant",
+                           "organization": "UChicago PME", "bullets": ["Built a pipeline"]}]}
+
+
+def test_importing_with_no_text_reads_the_resume_the_app_already_holds(app_client, monkeypatch):
+    """The button offering this says Claude reads your current resume, and the
+    interface has no paste box. A request carrying nothing used to come back
+    asking the user to paste something they had nowhere to put."""
+    captured: dict = {}
+    stub_import(monkeypatch, ONE_RECORD, captured)
+    monkeypatch.setattr(main, "get_resume_text", lambda: "Research Assistant, UChicago PME")
+
+    response = app_client.post("/api/bank/import", json={})
+
+    assert response.status_code == 200, response.text
+    assert [e["title"] for e in response.json()["entries"]] == ["Research Assistant"]
+    assert "UChicago PME" in captured["prompt"]
+
+
+def test_pasted_text_wins_over_the_stored_resume(app_client, monkeypatch):
+    captured: dict = {}
+    stub_import(monkeypatch, ONE_RECORD, captured)
+    monkeypatch.setattr(main, "get_resume_text", lambda: "the stored one")
+
+    app_client.post("/api/bank/import", json={"text": "the pasted one"})
+
+    assert "the pasted one" in captured["prompt"]
+    assert "the stored one" not in captured["prompt"]
+
+
+def test_importing_with_no_resume_anywhere_says_where_to_put_one(app_client, monkeypatch):
+    """The old message told the user to paste text. Nothing in the interface
+    takes pasted text, so it named an action they could not perform."""
+    monkeypatch.setattr(main, "get_resume_text", lambda: None)
+
+    response = app_client.post("/api/bank/import", json={})
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "Settings" in detail
+    assert "aste" not in detail
+
+
+def test_importing_writes_nothing_until_the_user_confirms(app_client, monkeypatch):
+    stub_import(monkeypatch, ONE_RECORD)
+    monkeypatch.setattr(main, "get_resume_text", lambda: "Research Assistant")
+
+    app_client.post("/api/bank/import", json={})
+
+    assert app_client.get("/api/bank/entries").json() == []
