@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import BankEntryForm from '../components/BankEntryForm'
 import BankRail from '../components/BankRail'
+import ContactForm from '../components/ContactForm'
 import CoveragePanel from '../components/CoveragePanel'
 import DraftCanvas from '../components/DraftCanvas'
 import Dropdown from '../components/Dropdown'
@@ -129,6 +130,8 @@ export default function Builder() {
   const [proposal, setProposal] = useState(null)
   const [standing, setStanding] = useState(null)
   const [importPreview, setImportPreview] = useState(null)
+  const [contact, setContact] = useState(null)
+  const [editingContact, setEditingContact] = useState(false)
   const [editing, setEditing] = useState(null)
   const [draggingEntry, setDraggingEntry] = useState(null)
   const [focusedPlacement, setFocusedPlacement] = useState(null)
@@ -185,10 +188,15 @@ export default function Builder() {
     let cancelled = false
     ;(async () => {
       try {
-        const [draftRows, bankRows] = await Promise.all([api.drafts(), api.bankEntries()])
+        const [draftRows, bankRows, contactRow] = await Promise.all([
+          api.drafts(),
+          api.bankEntries(),
+          api.resumeContact(),
+        ])
         if (cancelled) return
         setDrafts(draftRows)
         setBank(bankRows)
+        setContact(contactRow)
         setDraftId(draftRows[0]?.id ?? null)
       } catch (err) {
         if (!cancelled) setError(err.message)
@@ -264,6 +272,24 @@ export default function Builder() {
     act(async () => {
       setDraft(await api.placeDraftEntry(draft.id, { entry_id: entryId, section_ref: sectionRef }))
       await refreshCoverage(draft.id, Boolean(draft.job_post_id))
+    })
+
+  const renameDraft = (name) => {
+    if (!draft || !name || name === draft.name) return
+    act(async () => {
+      const saved = await api.updateDraft(draft.id, { name })
+      setDraft((current) => ({ ...current, ...saved }))
+      setDrafts(await api.drafts())
+    })
+  }
+
+  const saveContact = (body) =>
+    act(async () => {
+      setContact(await api.saveResumeContact(body))
+      setEditingContact(false)
+      // The heading is part of what a push writes, so a draft already pushed
+      // is now behind. Re-reading the draft is what refreshes that warning.
+      if (draftId) setDraft(await api.draft(draftId))
     })
 
   const createDraft = () =>
@@ -413,12 +439,23 @@ export default function Builder() {
 
   const actions = (
     <>
+      {draft ? (
+        <input
+          key={draft.id}
+          className="field w-56"
+          defaultValue={draft.name}
+          aria-label="Resume name"
+          title="Rename this resume"
+          onBlur={(event) => renameDraft(event.target.value.trim())}
+          onKeyDown={(event) => event.key === 'Enter' && event.target.blur()}
+        />
+      ) : null}
       <Dropdown
         value={draftId ?? ''}
         onChange={(value) => setDraftId(value ? Number(value) : null)}
         options={drafts.map((row) => ({ value: row.id, label: row.name }))}
-        ariaLabel="Resume draft"
-        className="w-56"
+        ariaLabel="Switch resume"
+        className="w-48"
       />
       <button type="button" className="btn" onClick={createDraft} disabled={busy} title="Start another resume">
         <PlusIcon />
@@ -516,8 +553,10 @@ export default function Builder() {
                 terms={terms}
                 droppingEntry={draggingEntry}
                 focusedPlacement={focusedPlacement}
+                contact={contact}
                 onChange={commit}
                 onPlace={placeEntry}
+                onEditContact={() => setEditingContact(true)}
               />
             </div>
 
@@ -570,6 +609,22 @@ export default function Builder() {
             onSave={saveEntry}
             onDelete={deleteEntry}
             onCancel={() => setEditing(null)}
+          />
+        ) : null}
+      </SlidePanel>
+
+      <SlidePanel
+        open={editingContact}
+        onClose={() => setEditingContact(false)}
+        title="Your contact details"
+        subtitle="Printed at the top of every resume you build."
+      >
+        {editingContact ? (
+          <ContactForm
+            contact={contact}
+            busy={busy}
+            onSave={saveContact}
+            onCancel={() => setEditingContact(false)}
           />
         ) : null}
       </SlidePanel>

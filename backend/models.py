@@ -796,6 +796,28 @@ class PlaceEntry(BaseModel):
     section_ref: Optional[str] = None
 
 
+class ContactLink(BaseModel):
+    """One of the addresses printed under the name."""
+
+    label: str = ""
+    url: str
+
+
+class ResumeContact(BaseModel):
+    """Who the resume is for and how to reach them.
+
+    One record for the install. A name and an email do not change with the
+    job being applied for, so asking again per draft is how a resume goes out
+    still reading "Your Name".
+    """
+
+    name: str = ""
+    location: str = ""
+    email: str = ""
+    phone: str = ""
+    links: list[ContactLink] = Field(default_factory=list)
+
+
 class ProposalOp(BaseModel):
     """One operation from the closed algebra a proposal may use.
 

@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 
 import advisor
 import bank as bank_module
+import contact as contact_module
 import drafts as drafts_module
 import favicons as favicons_module
 import jobposts
@@ -68,6 +69,7 @@ from models import (
     OpportunityUpdate,
     PlaceEntry,
     ProposalResolve,
+    ResumeContact,
     ResumeDraft,
     ResumeDraftCreate,
     ResumeDraftUpdate,
@@ -1903,6 +1905,16 @@ def extract_job_post_keywords(post_id: int, refresh: bool = False) -> JobPost:
     except ClaudeUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return JobPost(**post)
+
+
+@app.get("/api/resume-contact", response_model=ResumeContact)
+def read_resume_contact() -> ResumeContact:
+    return ResumeContact(**contact_module.get_contact())
+
+
+@app.put("/api/resume-contact", response_model=ResumeContact)
+def write_resume_contact(payload: ResumeContact) -> ResumeContact:
+    return ResumeContact(**contact_module.save_contact(payload.model_dump()))
 
 
 @app.get("/api/drafts", response_model=list[ResumeDraft])

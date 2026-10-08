@@ -26,6 +26,7 @@ from typing import Any, Callable, Iterator, Optional
 from uuid import uuid4
 
 import bank
+import contact
 import jobposts
 import keywords
 import resume_render
@@ -730,7 +731,9 @@ def coverage_report(draft_id: int) -> dict[str, Any]:
 # ----------------------------------------------------------------------- push
 
 def _rendered(draft: dict) -> str:
-    return resume_render.render_document(get_setting("resume_template") or "", draft["body"])
+    return resume_render.render_document(
+        get_setting("resume_template") or "", draft["body"], contact.get_contact()
+    )
 
 
 def _instance_latex(instance_id: Optional[int]) -> Optional[str]:

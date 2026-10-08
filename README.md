@@ -220,10 +220,18 @@ the right then tracks which of them your draft actually says, counts them per
 bucket, and highlights each one inside the resume text as you work. Terms with
 no highlight are the gaps.
 
+At the top of the canvas sits the heading the resume prints: your name, how to
+reach you, and the links worth showing. Press the pencil to fill it in. It is
+stored once for the whole app rather than per resume, since none of it changes
+with the job you are applying for.
+
+The resume's own name is the field beside the switcher at the top right. It
+names the draft for you and never appears in the document.
+
 The middle is the **canvas**, the resume itself. Drag a record out of the bank
 and it files itself under the section its kind belongs to; drag it into a
-different section to override that. Sections can be reordered, renamed to the
-ad's own wording, and removed. Within a section you can reorder entries and
+different section to override that. Sections can be reordered by their grip, renamed to
+the ad's own wording, and removed. Within a section you can reorder entries and
 drop individual bullets, which is how you get the most relevant lines to the
 top and keep the page to one.
 

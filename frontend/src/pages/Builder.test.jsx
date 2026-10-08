@@ -30,6 +30,8 @@ vi.mock('../api', async (importOriginal) => {
       updateBankBullet: vi.fn(),
       deleteBankBullet: vi.fn(),
       importBank: vi.fn(),
+      resumeContact: vi.fn(),
+      saveResumeContact: vi.fn(),
       jobPost: vi.fn(),
       createJobPost: vi.fn(),
       extractJobKeywords: vi.fn(),
@@ -98,7 +100,13 @@ const coverageOf = (covered) => ({
   ],
 })
 
-async function setup({ drafts = [DRAFT], draft = DRAFT, bank = BANK, jobPost = JOB_POST, coverage, proposals = [] } = {}) {
+const CONTACT = { name: '', location: '', email: '', phone: '', links: [] }
+
+async function setup({
+  drafts = [DRAFT], draft = DRAFT, bank = BANK, jobPost = JOB_POST, coverage, proposals = [],
+  contact = CONTACT,
+} = {}) {
+  api.resumeContact.mockResolvedValue(contact)
   api.drafts.mockResolvedValue(drafts)
   api.bankEntries.mockResolvedValue(bank)
   api.draft.mockResolvedValue(draft)
@@ -552,5 +560,101 @@ describe('Builder / adding into a group', () => {
     await waitFor(() =>
       expect(api.createBankEntry).toHaveBeenCalledWith(expect.objectContaining({ kind: 'experience' })),
     )
+  })
+})
+
+describe('Builder / naming the resume', () => {
+  it('renames the open draft, and shows the new name in the switcher', async () => {
+    const user = userEvent.setup()
+    api.updateDraft.mockResolvedValue({ ...DRAFT, name: 'ML Engineer, Argonne' })
+    api.drafts.mockResolvedValue([{ ...DRAFT, name: 'ML Engineer, Argonne' }])
+    await setup()
+
+    const field = screen.getByRole('textbox', { name: 'Resume name' })
+    await user.clear(field)
+    await user.type(field, 'ML Engineer, Argonne')
+    fireEvent.blur(field)
+
+    await waitFor(() =>
+      expect(api.updateDraft).toHaveBeenCalledWith(DRAFT.id, { name: 'ML Engineer, Argonne' }),
+    )
+  })
+
+  it('writes nothing when the field is left at the name it already had', async () => {
+    await setup()
+
+    fireEvent.blur(screen.getByRole('textbox', { name: 'Resume name' }))
+
+    expect(api.updateDraft).not.toHaveBeenCalled()
+  })
+
+  it('writes nothing when the name is cleared, rather than storing an empty one', async () => {
+    const user = userEvent.setup()
+    await setup()
+
+    const field = screen.getByRole('textbox', { name: 'Resume name' })
+    await user.clear(field)
+    fireEvent.blur(field)
+
+    expect(api.updateDraft).not.toHaveBeenCalled()
+  })
+})
+
+describe('Builder / the contact details', () => {
+  const FILLED = {
+    name: 'Aiden King',
+    location: 'Chicago, IL',
+    email: 'aidenk@uchicago.edu',
+    phone: '',
+    links: [{ label: 'github.com/me', url: 'https://github.com/me' }],
+  }
+
+  it('prints the stored details at the top of the canvas, where they land', async () => {
+    await setup({ contact: FILLED })
+
+    expect(await screen.findByText('Aiden King')).toBeInTheDocument()
+    expect(screen.getByText('Chicago, IL · aidenk@uchicago.edu')).toBeInTheDocument()
+    expect(screen.getByText('github.com/me')).toBeInTheDocument()
+  })
+
+  it('says so when there are none, rather than printing an empty heading', async () => {
+    await setup()
+
+    expect(await screen.findByText(/no name or contact details yet/i)).toBeInTheDocument()
+  })
+
+  it('saves what the form collects', async () => {
+    const user = userEvent.setup()
+    api.saveResumeContact.mockResolvedValue({ ...CONTACT, name: 'Aiden King' })
+    api.draft.mockResolvedValue(DRAFT)
+    await setup()
+
+    await user.click(await screen.findByText(/no name or contact details yet/i))
+    const panel = await screen.findByRole('dialog')
+    await user.type(within(panel).getByRole('textbox', { name: 'Name' }), 'Aiden King')
+    await user.click(within(panel).getByRole('button', { name: /save contact details/i }))
+
+    await waitFor(() =>
+      expect(api.saveResumeContact).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Aiden King' }),
+      ),
+    )
+  })
+
+  it('drops a link row left with no address', async () => {
+    const user = userEvent.setup()
+    api.saveResumeContact.mockResolvedValue(CONTACT)
+    api.draft.mockResolvedValue(DRAFT)
+    await setup({ contact: FILLED })
+
+    await user.click(screen.getByRole('button', { name: /edit your contact details/i }))
+    const panel = await screen.findByRole('dialog')
+    await user.click(within(panel).getByRole('button', { name: /add a link/i }))
+    await user.click(within(panel).getByRole('button', { name: /save contact details/i }))
+
+    await waitFor(() => expect(api.saveResumeContact).toHaveBeenCalled())
+    expect(api.saveResumeContact.mock.calls[0][0].links).toEqual([
+      { label: 'github.com/me', url: 'https://github.com/me' },
+    ])
   })
 })

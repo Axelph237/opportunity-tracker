@@ -65,6 +65,7 @@ async function requestPage(path) {
 const get = (path) => request(path)
 const post = (path, body) => request(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
 const patch = (path, body) => request(path, { method: 'PATCH', body: JSON.stringify(body) })
+const put = (path, body) => request(path, { method: 'PUT', body: JSON.stringify(body) })
 const del = (path) => request(path, { method: 'DELETE' })
 
 function query(params) {
@@ -165,6 +166,8 @@ export const api = {
   createBankEntry: (body) => post('/bank/entries', body),
   reorderBankEntries: (ids) => post('/bank/entries/reorder', { ids }),
   importBank: () => post('/bank/import'),
+  resumeContact: () => get('/resume-contact'),
+  saveResumeContact: (body) => put('/resume-contact', body),
   bankEntry: (id) => get(`/bank/entries/${id}`),
   updateBankEntry: (id, body) => patch(`/bank/entries/${id}`, body),
   deleteBankEntry: (id) => del(`/bank/entries/${id}`),
