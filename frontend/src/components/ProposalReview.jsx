@@ -106,10 +106,8 @@ export default function ProposalReview({ proposal, body, bank, busy, onApply, on
 
   const kept = operations.filter((_op, index) => !rejected.has(index))
 
-  // `ProposalResolve.operations` is the reviewed set: every operation that was
-  // offered, carrying the state the user left its box in. The server matches
-  // each one against what it proposed and refuses anything else, so handing
-  // back a list of ids would not tell it which ops they were.
+  // An operation has no id. The server matches a submitted one against what
+  // it offered, field for field, so the whole op has to travel back.
   const reviewed = () => operations.map((op, index) => ({ ...op, accepted: !rejected.has(index) }))
 
   const toggle = (index) =>

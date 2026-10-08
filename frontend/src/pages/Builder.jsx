@@ -154,8 +154,8 @@ export default function Builder() {
   /**
    * Anything waiting on a decision, drift included.
    *
-   * Reading the list is what runs the drift check, so a bank record reworded
-   * after this draft was composed only becomes visible once somebody asks.
+   * This GET has a side effect: reading the list is what runs the drift
+   * check, so a reworded bank record surfaces only once somebody asks.
    */
   const refreshProposals = useCallback(async (id) => {
     const pending = (await api.draftProposals(id)).filter((row) => row.status === 'pending')
@@ -260,7 +260,6 @@ export default function Builder() {
     [draft, refreshCoverage],
   )
 
-  /** Snapshotting a bank record onto the canvas is the server's call, not ours. */
   const placeEntry = (entryId, sectionRef) =>
     act(async () => {
       setDraft(await api.placeDraftEntry(draft.id, { entry_id: entryId, section_ref: sectionRef }))
@@ -337,8 +336,6 @@ export default function Builder() {
 
   const confirmImport = (entries) =>
     act(async () => {
-      // A BankEntryCreate carries its own bullets, as plain strings, so
-      // confirming costs one request per record rather than one per line.
       for (const entry of entries) await api.createBankEntry(entry)
       await reloadBank()
       setImportPreview(null)
@@ -386,18 +383,27 @@ export default function Builder() {
 
   const push = () =>
     act(async () => {
+      let edited = null
       try {
         remember(await api.pushDraft(draft.id))
         return
       } catch (err) {
-        // A refused push is a 409 carrying both texts, not a 200 saying no.
         if (err.status !== 409) throw err
+        edited = err.detail?.current_latex ?? ''
       }
-      // The LaTeX editor is still the escape hatch, so a hand-edit there must
-      // not be overwritten without being shown first.
+      // The LaTeX editor is still the escape hatch, so a hand-edit there is
+      // shown before it is replaced, rather than described and guessed at.
       const confirmed = await confirm({
         title: 'That resume was edited by hand',
-        body: 'The LaTeX has changed since this draft last wrote it. Pushing again replaces the whole document with what is on the canvas.',
+        body: (
+          <>
+            Pushing again replaces the whole document with what is on the canvas. This is what
+            is in that resume now:
+            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded border border-outline-variant bg-surface p-2 font-code text-data">
+              {edited}
+            </pre>
+          </>
+        ),
         confirmLabel: 'Replace it',
       })
       if (confirmed) remember(await api.pushDraft(draft.id, true))

@@ -189,9 +189,6 @@ describe('Builder / an empty bank', () => {
 
 describe('Builder / placing a record from the bank', () => {
   it('asks the server to cut the snapshot, and shows what it sent back', async () => {
-    // The snapshot is the layout registry, the date formatting and the
-    // provenance rules at once. Cutting it in the browser is a second copy of
-    // all three that nothing keeps in step with the one that renders.
     const placed = {
       ...DRAFT,
       body: {
@@ -279,8 +276,6 @@ describe('Builder / the coverage feedback loop', () => {
 })
 
 describe('Builder / the cold-start import', () => {
-  // `BankImportPreview` is a list of `BankEntryCreate`, whose bullets are
-  // plain strings that travel with the record.
   const PREVIEW = {
     entries: [
       { kind: 'experience', title: 'Research Assistant', organization: 'Fermilab', bullets: ['Built the DAQ pipeline'] },
@@ -381,9 +376,6 @@ describe('Builder / tailoring', () => {
     await user.click(within(panel).getAllByRole('checkbox')[1])
     await user.click(within(panel).getByRole('button', { name: /apply 1 of 2/i }))
 
-    // `ProposalResolve` is {action, operations}. The whole reviewed set goes
-    // back, because the server treats an operation left out as one the user
-    // did not accept.
     await waitFor(() =>
       expect(api.resolveProposal).toHaveBeenCalledWith(3, {
         action: 'apply',
@@ -412,8 +404,6 @@ describe('Builder / tailoring', () => {
 })
 
 describe('Builder / drift waiting on a decision', () => {
-  // Reading the proposal list is what runs the drift check, so a page that
-  // never reads it never tells the user their bank has moved on.
   const SYNC = {
     id: 12,
     kind: 'sync',
@@ -466,9 +456,8 @@ describe('Builder / drift waiting on a decision', () => {
 })
 
 describe('Builder / pushing to a resume', () => {
-  // A refused push is a 409. The api layer turns that into a throw carrying
-  // the status and the detail, pinned by src/api.test.js, so a resolved
-  // `{diverged: true}` is an answer the server never sends.
+  // The shape src/api.test.js pins: a 409 reaches a caller as a throw
+  // carrying the status and the parsed detail.
   const refused = () =>
     Object.assign(new Error('edited by hand'), {
       status: 409,
@@ -494,7 +483,8 @@ describe('Builder / pushing to a resume', () => {
 
     await user.click(screen.getByRole('button', { name: /push to resume/i }))
     const dialog = await screen.findByRole('alertdialog')
-    expect(within(dialog).getByText(/edited by hand/i)).toBeInTheDocument()
+    // The work about to be lost, not a description of it.
+    expect(within(dialog).getByText('% by hand')).toBeInTheDocument()
 
     await user.click(within(dialog).getByRole('button', { name: /replace it/i }))
     await waitFor(() => expect(api.pushDraft).toHaveBeenCalledWith(9, true))

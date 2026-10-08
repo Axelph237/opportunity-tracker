@@ -50,8 +50,8 @@ class CorruptDraft(RuntimeError):
 class PushConflict(RuntimeError):
     """Raised when the linked resume no longer matches what we last wrote to it.
 
-    Carries both texts so the caller can show the user a real diff rather than
-    a dialog asking them to guess what changed.
+    Carries both texts so the caller can show the user the work it is refusing
+    over, rather than a dialog asking them to guess what changed.
     """
 
     def __init__(self, draft_id: int, instance_id: Optional[int],
@@ -94,11 +94,8 @@ def _complete(body: Optional[dict]) -> dict:
     body = body if isinstance(body, dict) else {}
     body.setdefault("sections", [])
     for section in body["sections"]:
-        # A section's label is renameable per job. Its key is what filing an
-        # entry matches on, so a renamed section still takes the next entry of
-        # its kind rather than a second section appearing beside it under the
-        # old name. A body stored before keys existed takes the label it was
-        # created under, which is what the key would have been.
+        # A body stored or posted without a key takes the label it was created
+        # under, which is what its key would have been.
         if not section.get("key"):
             section["key"] = section.get("label") or ""
     return body
@@ -334,7 +331,8 @@ def _mutate_body(conn: sqlite3.Connection, draft_id: int, change: Callable[[dict
 
 def place_entry(draft_id: int, entry_id: int, *, section_ref: Optional[str] = None) -> dict[str, Any]:
     """Snapshot a bank record into a draft."""
-    # Opens its own connection, so it resolves before the write below.
+    # `bank.get_entry` opens its own connection, so it resolves before the
+    # write below opens one.
     entry = bank.get_entry(entry_id)
     layout = bank.layout_for(entry.get("kind"))
     snapshot = _snapshot(entry)
@@ -403,8 +401,8 @@ def _op_add_bullet(body: dict, op: dict, index: dict) -> None:
     # Naming an id the bank holds is not enough on its own. Hanging one
     # record's achievement under another claims the second did the first's
     # work, which is the thing the closed algebra exists to prevent, and the
-    # snapshot would keep claiming it: the drift check re-anchors to the
-    # source bullet, so every later sync rewrites it back in place.
+    # snapshot anchors to the foreign bullet, so editing that bullet in the
+    # bank writes the misattribution back into the draft.
     if source["entry_id"] != placement.get("entry_id"):
         raise ValueError(
             f"Bullet {source['id']} belongs to entry {source['entry_id']}, "
@@ -499,20 +497,20 @@ def list_proposals(draft_id: int) -> list[dict[str, Any]]:
     return [proposal_dict(row) for row in rows]
 
 
-# The user's decision and the author's reasoning are not part of what makes
-# two operations the same operation.
-_DECISION_FIELDS = ("accepted", "rationale")
+_NOT_IDENTITY = ("accepted", "rationale")
 
 
 def _identity(op: dict) -> tuple:
     """What has to match for a submitted operation to be one that was offered.
 
-    A missing field and a field set to None mean the same thing throughout the
-    algebra, so an absent value is left out rather than compared.
+    The accept state is the user's answer and the rationale is the author's
+    reasoning, so neither is part of which operation this is. A missing field
+    and a field set to None mean the same thing throughout the algebra, so an
+    absent value is left out rather than compared.
     """
     return tuple(sorted(
         (field, value) for field, value in op.items()
-        if field not in _DECISION_FIELDS and value is not None
+        if field not in _NOT_IDENTITY and value is not None
     ))
 
 
@@ -597,8 +595,8 @@ def sync_proposal(draft_id: int) -> Optional[dict[str, Any]]:
     Convergent. Running it again on an unchanged draft hands back the standing
     offer unchanged, replaces it once the drift behind it moves, and withdraws
     it entirely when nothing differs. The list endpoint runs this on every
-    read, so an offer that were re-minted each time would 404 the id the client
-    is holding the moment the list refreshed under it.
+    read, so an offer re-minted each time would 404 the id the client is
+    holding the moment the list refreshed under it.
     """
     draft = get_draft(draft_id)
     with get_db() as conn:
@@ -740,10 +738,9 @@ def push_draft(draft_id: int, *, force: bool = False) -> dict[str, Any]:
     instance_id = draft.get("resume_instance_id")
     current = _instance_latex(instance_id)
     if current is None:
-        # No variant behind the draft, or one that has since been deleted.
-        # Either way `pushed_latex` describes a row nobody can lose work from,
-        # so there is nothing here to refuse over. Minting the variant on this
-        # branch alone is also what stops a refused push leaving one behind.
+        # `pushed_latex` describes a row nobody can lose work from, so there
+        # is nothing here to refuse over, and minting the variant on this
+        # branch alone is what stops a refused push leaving one behind.
         #
         # `resumes.create_instance` opens connections of its own, so it has to
         # finish before this function opens a write of its own.

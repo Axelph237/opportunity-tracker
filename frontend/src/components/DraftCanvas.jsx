@@ -382,10 +382,10 @@ export default function DraftCanvas({
    * `sectionRef` is null when the record was dropped on the canvas rather than
    * on a section, which the server reads as "file it where its kind belongs".
    *
-   * The snapshot is cut server-side. Building it here meant a second copy of
-   * the layout registry, the date formatting and the provenance rules, and
-   * the copy had already drifted: it filed an award under "Honors" where the
-   * registry says "Honors and Awards".
+   * The snapshot itself is cut server-side. Building it here was a second
+   * copy of the layout registry, the date formatting and the provenance
+   * rules, and it had already drifted: it filed an award under "Honors" where
+   * the registry says "Honors and Awards".
    */
   const dropEntry = (sectionRef) => {
     if (droppingEntry) onPlace(droppingEntry.id, sectionRef)

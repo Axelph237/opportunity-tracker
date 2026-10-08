@@ -111,8 +111,8 @@ describe('error handling', () => {
   })
 
   it('carries the status and the parsed detail on the error it throws', async () => {
-    // A 409 from a push is not a failure to report. It carries the diff the
-    // page has to show before it offers to overwrite anything, and a caller
+    // A 409 from a push is not a failure to report. It carries the hand edit
+    // the page shows before it offers to overwrite anything, and a caller
     // that only saw the message would have to parse it back out of a string.
     const detail = { diverged: true, current_latex: '% by hand' }
     fetch.mockResolvedValue(jsonResponse({ detail }, { status: 409 }))

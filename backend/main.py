@@ -1964,7 +1964,7 @@ def push_draft(draft_id: int, force: bool = False) -> DraftPushResult:
     """Write the rendered document into the linked resume variant.
 
     A variant hand-edited since the last push is a 409 carrying both texts, so
-    the editor can show the diff rather than a dialog the user has to guess at.
+    the page can show the user that edit rather than describe it.
     `force=true` overwrites it anyway.
     """
     try:

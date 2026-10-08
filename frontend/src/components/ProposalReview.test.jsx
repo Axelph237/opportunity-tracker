@@ -21,9 +21,7 @@ const BODY = {
 
 const BANK = [{ id: 7, title: 'Delphi' }]
 
-// Operations as `ProposalOp` declares them. There is no id on an operation,
-// so a fixture that gave them one let the component hand ids back to a server
-// that has never heard of them.
+// Operations as `ProposalOp` declares them, which has no id field.
 const PROPOSAL = {
   id: 3,
   kind: 'tailor',
@@ -100,9 +98,6 @@ describe('ProposalReview / applying', () => {
   const accepts = (call) => call.map((op) => [op.op, op.accepted])
 
   it('hands back every operation that was offered, not just the ticked ones', async () => {
-    // The server matches each one against what it proposed and treats an
-    // operation left out of the list as one the user did not take, so the
-    // whole reviewed set travels with its accept states.
     const user = userEvent.setup()
     const { onApply } = setup()
     await user.click(screen.getByRole('button', { name: 'Apply 3 of 3' }))
@@ -122,8 +117,6 @@ describe('ProposalReview / applying', () => {
   })
 
   it('sends each operation back with the fields it was offered with', async () => {
-    // An operation the server cannot match against the one it proposed is
-    // refused, so nothing may be dropped or renamed on the way back.
     const user = userEvent.setup()
     const { onApply } = setup()
     await user.click(screen.getByRole('button', { name: 'Apply 3 of 3' }))

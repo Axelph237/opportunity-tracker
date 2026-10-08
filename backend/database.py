@@ -323,10 +323,10 @@ RESUME_TEMPLATE = r"""\documentclass[letterpaper,11pt]{article}
 \titlespacing{\section}{0pt}{12pt}{6pt}
 \setlist[itemize]{leftmargin=*, topsep=2pt, itemsep=1pt}
 
-% The macro set `resume_render` emits, named after the sb2nov resume template
-% the project's own resume.tex already uses. A draft renders to calls on these
-% and nothing else, so a template missing one of them is a template no draft
-% can compile through.
+% Every \resume* macro the renderer emits, named after the sb2nov template the
+% project's own resume.tex already uses. A template missing one of them is a
+% template no draft can compile through; the two sides are held together by
+% backend/tests/test_resume_template.py.
 \newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0pt, label={}, topsep=4pt, itemsep=4pt]}
 \newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
 \newcommand{\resumeItemListStart}{\begin{itemize}}

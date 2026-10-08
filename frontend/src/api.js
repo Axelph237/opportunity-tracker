@@ -34,9 +34,9 @@ async function send(path, options = {}) {
     }
     // 502/503/504 from the dev proxy mean the API never answered at all.
     if (response.status >= 502 && response.status <= 504) throw new ApiOfflineError(message)
-    // The status and the parsed detail ride along because some answers are
-    // not failures to report: a 409 from a push carries the diff the user has
-    // to be shown before anything overwrites it.
+    // Some answers are not failures to report. A caller needs the status to
+    // tell a push refused over a hand edit from a push that went wrong, and
+    // the detail to show the user the edit it refused over.
     throw Object.assign(new Error(message), { status: response.status, detail })
   }
 

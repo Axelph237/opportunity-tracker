@@ -162,12 +162,11 @@ def test_two_placements_that_arrive_with_the_same_ref_are_separated(app_client):
     assert len(set(refs)) == 2
 
 
-# ----------------------------------------------------------------- placements
+# ----------------------------------------------------------- the placements route
 
 def test_placing_an_entry_over_http_puts_it_on_the_canvas(app_client):
-    """The composer's only way to take something out of the bank. Phase 1's
-    route list left it out, so nothing registered it and the bank rail had
-    nowhere to drop."""
+    """The composer's only way to take something out of the bank. No route was
+    ever registered for it, so the rail had nowhere to drop."""
     draft = make_draft(app_client)
     entry = make_entry(app_client, bullets=["Ran the rig"])
 
@@ -692,9 +691,9 @@ def test_an_add_entry_operation_that_names_no_entry_at_all_is_refused(app_client
 
 def test_a_bullet_cannot_be_added_under_a_record_it_does_not_belong_to(app_client):
     """The closed algebra is what stops a tailoring pass inventing experience.
-    Hanging one employer's achievement under another is exactly that, and the
-    snapshot would keep claiming it: the drift check re-anchors to the source
-    bullet, so the misattribution survives every later sync."""
+    Hanging one employer's achievement under another is exactly that, and it
+    sticks: the snapshot anchors to the foreign bullet, so editing that bullet
+    in the bank writes the misattribution back in."""
     draft, _entry, placement = placed(app_client, bullets=("Ran the rig",))
     elsewhere = make_entry(app_client, title="Barista", organization="Cafe",
                            bullets=["Shipped a compiler"])

@@ -223,12 +223,9 @@ describe('DraftCanvas / reordering from the keyboard', () => {
 })
 
 describe('DraftCanvas / dropping a record in from the bank', () => {
-  // The canvas names the record and the section and stops there. Cutting the
-  // snapshot here meant a second copy of the layout registry, the date
-  // formatting and the provenance rules, in a language that cannot share the
-  // backend's; the copy had already drifted on one section name. What a
-  // snapshot contains is asserted against the one implementation, in
-  // backend/tests/test_api_drafts.py.
+  // What a snapshot contains is asserted against the one implementation, in
+  // backend/tests/test_api_drafts.py. Here the claim is only what the canvas
+  // asks for.
   it('asks the server to file it under the section it was dropped on', () => {
     const onPlace = dropping(ENTRY)
     fireEvent.drop(screen.getByDisplayValue('Experience').closest('section'), { dataTransfer: transfer() })
