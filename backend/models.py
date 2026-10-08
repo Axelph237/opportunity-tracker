@@ -787,6 +787,15 @@ class ResumeDraftUpdate(BaseModel):
         return value.strip() if value is not None else None
 
 
+class PlaceEntry(BaseModel):
+    """Which bank record to snapshot into a draft, and where to file it."""
+
+    entry_id: int
+    # Absent files the record under the section its kind belongs to, which is
+    # what dragging it onto the canvas rather than into a section means.
+    section_ref: Optional[str] = None
+
+
 class ProposalOp(BaseModel):
     """One operation from the closed algebra a proposal may use.
 

@@ -19,7 +19,6 @@ import pytest
 
 import bank
 import database
-import drafts
 import latex
 import resume_render
 
@@ -30,7 +29,6 @@ ENGINE_AVAILABLE = REAL_AVAILABLE()
 # The renderer's own macro vocabulary. Anything outside this family is either
 # plain LaTeX or comes from a package the template loads.
 RENDERER_MACRO = re.compile(r"\\(resume[A-Za-z]*)")
-
 
 def every_kind_body() -> dict:
     """One placement per registry kind, so no heading style goes unrendered."""
@@ -58,7 +56,6 @@ def every_kind_body() -> dict:
         ]
     }
 
-
 def test_the_shipped_template_defines_every_macro_the_renderer_emits():
     """The TeX-free half of the contract, so a machine with no engine still
     catches a template and a renderer drifting apart."""
@@ -69,7 +66,6 @@ def test_the_shipped_template_defines_every_macro_the_renderer_emits():
 
     assert emitted, "the sample body rendered no renderer macros at all"
     assert emitted <= defined, f"undefined in the template: {sorted(emitted - defined)}"
-
 
 def seed_a_draft(app_client) -> int:
     """A draft holding one record of every kind, composed the way the UI does."""
@@ -89,9 +85,10 @@ def seed_a_draft(app_client) -> int:
                 else ["Cut tree depth 38% on the hot path", "Shipped it"]
             ),
         }).json()
-        drafts.place_entry(draft_id, entry["id"])
+        placed = app_client.post(f"/api/drafts/{draft_id}/placements",
+                                 json={"entry_id": entry["id"]})
+        assert placed.status_code == 201, placed.text
     return draft_id
-
 
 @pytest.mark.skipif(not ENGINE_AVAILABLE, reason="no TeX engine on this machine")
 def test_a_pushed_draft_compiles_through_the_seeded_template(app_client, monkeypatch):

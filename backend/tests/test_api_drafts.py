@@ -162,6 +162,52 @@ def test_two_placements_that_arrive_with_the_same_ref_are_separated(app_client):
     assert len(set(refs)) == 2
 
 
+# ----------------------------------------------------------------- placements
+
+def test_placing_an_entry_over_http_puts_it_on_the_canvas(app_client):
+    """The composer's only way to take something out of the bank. Phase 1's
+    route list left it out, so nothing registered it and the bank rail had
+    nowhere to drop."""
+    draft = make_draft(app_client)
+    entry = make_entry(app_client, bullets=["Ran the rig"])
+
+    response = app_client.post(f"/api/drafts/{draft['id']}/placements",
+                               json={"entry_id": entry["id"]})
+
+    assert response.status_code == 201, response.text
+    section = response.json()["body"]["sections"][0]
+    assert section["label"] == "Experience"
+    assert [p["title"] for p in section["placements"]] == ["Lab assistant"]
+    assert [b["text"] for b in section["placements"][0]["bullets"]] == ["Ran the rig"]
+
+
+def test_placing_an_entry_into_a_named_section_files_it_there(app_client):
+    draft = make_draft(app_client)
+    first = make_entry(app_client, kind="project", title="Delphi")
+    app_client.post(f"/api/drafts/{draft['id']}/placements", json={"entry_id": first["id"]})
+    projects = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]["sections"][0]
+    second = make_entry(app_client, title="Lab assistant")
+
+    response = app_client.post(f"/api/drafts/{draft['id']}/placements",
+                               json={"entry_id": second["id"], "section_ref": projects["ref"]})
+
+    sections = response.json()["body"]["sections"]
+    assert [s["label"] for s in sections] == ["Projects"]
+    assert [p["title"] for p in sections[0]["placements"]] == ["Delphi", "Lab assistant"]
+
+
+def test_placing_over_http_reports_an_unknown_draft_and_an_unknown_entry(app_client):
+    entry = make_entry(app_client)
+    draft = make_draft(app_client)
+
+    assert app_client.post("/api/drafts/999/placements",
+                           json={"entry_id": entry["id"]}).status_code == 404
+    assert app_client.post(f"/api/drafts/{draft['id']}/placements",
+                           json={"entry_id": 999}).status_code == 404
+    assert app_client.post(f"/api/drafts/{draft['id']}/placements",
+                           json={"entry_id": entry["id"], "section_ref": "nope"}).status_code == 400
+
+
 # ------------------------------------------------------------------ snapshots
 
 def test_placing_an_entry_files_it_under_the_section_its_kind_belongs_to(app_client):

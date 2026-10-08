@@ -65,6 +65,7 @@ from models import (
     Opportunity,
     OpportunityDetail,
     OpportunityUpdate,
+    PlaceEntry,
     ProposalResolve,
     ResumeDraft,
     ResumeDraftCreate,
@@ -1923,6 +1924,20 @@ def delete_draft(draft_id: int) -> None:
         drafts_module.delete_draft(draft_id)
     except drafts_module.DraftNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/drafts/{draft_id}/placements", response_model=ResumeDraft, status_code=201)
+def place_draft_entry(draft_id: int, payload: PlaceEntry) -> ResumeDraft:
+    """Snapshot a bank record onto the draft, which is what a drag from the rail does."""
+    try:
+        draft = drafts_module.place_entry(
+            draft_id, payload.entry_id, section_ref=payload.section_ref
+        )
+    except (drafts_module.DraftNotFound, bank_module.BankNotFound) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ResumeDraft(**draft)
 
 
 @app.get("/api/drafts/{draft_id}/coverage", response_model=CoverageReport)

@@ -140,11 +140,6 @@ _BODIES: dict[str, Callable[[dict, KindLayout], str]] = {
 }
 
 
-def render_placement(placement: dict, layout: KindLayout) -> str:
-    """One snapshotted bank entry, laid out the way its kind's registry row says."""
-    return _BODIES[layout.bullet_style](placement, layout)
-
-
 def render_section(section: dict) -> str:
     """One `\\section` and its entries, or nothing at all when it holds none.
 
@@ -152,11 +147,12 @@ def render_section(section: dict) -> str:
     `itemize`, and an empty one fails the compile that would have shown the
     user a resume with a stray blank heading.
     """
-    rendered = [
-        render_placement(placement, bank.layout_for(placement.get("kind")))
-        for placement in section.get("placements") or []
-    ]
-    rendered = [block for block in rendered if block.strip()]
+    rendered = []
+    for placement in section.get("placements") or []:
+        layout = bank.layout_for(placement.get("kind"))
+        block = _BODIES[layout.bullet_style](placement, layout)
+        if block.strip():
+            rendered.append(block)
     if not rendered:
         return ""
     return "\n".join(
