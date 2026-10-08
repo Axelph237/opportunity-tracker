@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, StrictInt, field_validator
 
 from bank import BulletStyle, EntryKind
 
@@ -809,14 +809,18 @@ class ProposalOp(BaseModel):
                 "AddBullet", "DropBullet", "MoveBullet", "RewriteBullet"]
     accepted: bool = True
     rationale: Optional[str] = None
-    entry_id: Optional[int] = None
-    bullet_id: Optional[int] = None
+    # Strict, because the default coercion reads `true` and `"1"` as the
+    # integer 1. A malformed request would then name bank record 1 and be
+    # applied rather than refused. `tailor._int` already holds this line
+    # against the model; the public route has to hold it against a client.
+    entry_id: Optional[StrictInt] = None
+    bullet_id: Optional[StrictInt] = None
     section: Optional[str] = None   # names a section by key, not by its label
     section_id: Optional[str] = None
     label: Optional[str] = None
     placement_id: Optional[str] = None
     bullet_ref: Optional[str] = None
-    position: Optional[int] = None
+    position: Optional[StrictInt] = None
     text: Optional[str] = None
 
 

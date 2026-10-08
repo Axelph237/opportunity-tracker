@@ -612,6 +612,27 @@ def test_two_identical_operations_take_their_own_answers(app_client):
     assert [op["accepted"] for op in drafts.get_proposal(proposal_id)["operations"]] == [True, False]
 
 
+@pytest.mark.parametrize("value", [True, 1.0, "1"])
+def test_an_id_that_is_not_an_integer_is_refused_rather_than_rounded(app_client, value):
+    """Pydantic's default coercion reads all three of these as the integer 1,
+    so a malformed request silently named bank record 1 and was applied. The
+    model the agent writes through already refused them, so the two gates
+    disagreed and the lax one was the public route."""
+    draft, entry, placement = placed(app_client)
+    proposal_id = make_proposal(draft["id"], [
+        {"op": "AddBullet", "placement_id": placement["ref"],
+         "bullet_id": entry["bullets"][0]["id"]},
+    ])
+
+    response = resolve(app_client, proposal_id, operations=[
+        {"op": "AddBullet", "placement_id": placement["ref"], "bullet_id": value},
+    ])
+
+    assert response.status_code == 422, response.text
+    assert [b["text"] for b in only_placement(app_client, draft["id"])["bullets"]] == ["One", "Two"]
+
+
+
 def test_applying_the_same_proposal_twice_changes_nothing_the_second_time(app_client):
     """A retry, a double click or a replayed request must not drop two bullets."""
     draft, _entry, placement = placed(app_client, bullets=("One", "Two", "Three"))
