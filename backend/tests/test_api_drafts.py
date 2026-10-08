@@ -492,6 +492,41 @@ def test_an_add_entry_operation_that_names_no_entry_at_all_is_refused(app_client
     assert resolve(app_client, proposal_id).status_code == 400
 
 
+def test_a_bullet_cannot_be_added_under_a_record_it_does_not_belong_to(app_client):
+    """The closed algebra is what stops a tailoring pass inventing experience.
+    Hanging one employer's achievement under another is exactly that, and the
+    snapshot would keep claiming it: the drift check re-anchors to the source
+    bullet, so the misattribution survives every later sync."""
+    draft, _entry, placement = placed(app_client, bullets=("Ran the rig",))
+    elsewhere = make_entry(app_client, title="Barista", organization="Cafe",
+                           bullets=["Shipped a compiler"])
+    proposal_id = make_proposal(draft["id"], [{
+        "op": "AddBullet", "placement_id": placement["ref"],
+        "bullet_id": elsewhere["bullets"][0]["id"],
+    }])
+
+    response = resolve(app_client, proposal_id)
+
+    assert response.status_code == 400, response.text
+    assert [b["text"] for b in only_placement(app_client, draft["id"])["bullets"]] == ["Ran the rig"]
+
+
+def test_a_bullet_from_the_records_own_entry_is_added(app_client):
+    """The other side of the same check: a bullet the user wrote under this
+    record, dropped from the draft and offered back, still goes in."""
+    draft, entry, placement = placed(app_client, bullets=("One", "Two"))
+    body = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]
+    body["sections"][0]["placements"][0]["bullets"] = []
+    app_client.patch(f"/api/drafts/{draft['id']}", json={"body": body})
+    proposal_id = make_proposal(draft["id"], [{
+        "op": "AddBullet", "placement_id": placement["ref"],
+        "bullet_id": entry["bullets"][1]["id"],
+    }])
+
+    assert resolve(app_client, proposal_id).status_code == 200
+    assert [b["text"] for b in only_placement(app_client, draft["id"])["bullets"]] == ["Two"]
+
+
 def test_an_operation_naming_a_line_that_is_not_in_the_draft_is_refused(app_client):
     draft, _entry, placement = placed(app_client)
     proposal_id = make_proposal(draft["id"], [

@@ -349,8 +349,18 @@ def _op_rename_section(body: dict, op: dict, _index: dict) -> None:
 
 def _op_add_bullet(body: dict, op: dict, index: dict) -> None:
     _, placement = _locate_placement(body, op.get("placement_id"))
-    snapshot = _snapshot_bullet(index["bullets"][op["bullet_id"]])
-    _insert(placement.setdefault("bullets", []), snapshot, op.get("position"))
+    source = index["bullets"][op["bullet_id"]]
+    # Naming an id the bank holds is not enough on its own. Hanging one
+    # record's achievement under another claims the second did the first's
+    # work, which is the thing the closed algebra exists to prevent, and the
+    # snapshot would keep claiming it: the drift check re-anchors to the
+    # source bullet, so every later sync rewrites it back in place.
+    if source["entry_id"] != placement.get("entry_id"):
+        raise ValueError(
+            f"Bullet {source['id']} belongs to entry {source['entry_id']}, "
+            f"not to the record placed at {op.get('placement_id')!r}."
+        )
+    _insert(placement.setdefault("bullets", []), _snapshot_bullet(source), op.get("position"))
 
 
 def _op_drop_bullet(body: dict, op: dict, _index: dict) -> None:
