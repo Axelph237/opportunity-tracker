@@ -25,6 +25,7 @@ It runs entirely on your own machine. Your resume never leaves it.
   - [Using it](#using-it)
     - [Your shortlist](#your-shortlist)
     - [Checking your fit](#checking-your-fit)
+    - [Building a resume from your experience](#building-a-resume-from-your-experience)
     - [Writing your resume](#writing-your-resume)
     - [The bigger picture](#the-bigger-picture)
     - [Tracking applications](#tracking-applications)
@@ -61,6 +62,13 @@ experience you do not have.
 **Shows you the bigger picture.** Role analysis reads your whole shortlist at once
 and tells you which requirements keep recurring, which ones you already meet, and
 what to learn next.
+
+**Builds a resume per ad out of your own experience.** Keep your projects, jobs,
+degrees and skills as individual records, then compose one resume for one listing
+by dragging them onto a canvas. Paste the ad and it extracts the vocabulary worth
+mirroring, then shows you live which of it your draft already says. Claude will
+reorder and reword what is there to close the gaps, as a set of changes you
+approve one at a time, and it cannot add experience you never entered.
 
 **Lets you write the resume, not just measure it.** A LaTeX editor with a live
 PDF preview, and as many tailored versions as you have applications. Each one
@@ -191,6 +199,45 @@ adjustments**. You get:
 The diamond in the table's **Fit** column shows which listings already have advice
 saved (◆) and which do not (◇). Advice is cached, so reopening it is instant.
 Upload a new resume and older advice is flagged stale with a button to refresh it.
+
+### Building a resume from your experience
+
+**Builder** is for the part that happens before the LaTeX. You keep your
+experience as individual records, and build one resume per job ad out of them
+rather than editing last month's copy down.
+
+The left rail is your **experience bank**. A record is one job, one project,
+one degree, one award, one group of skills, with its own bullets. **New** adds
+one; **Import from my resume** reads the resume you already have and proposes
+records for you to confirm, which is the quicker way in. Nothing in the bank is
+tied to a particular application, so writing a bullet once makes it available
+to every resume you build after.
+
+Paste the ad into a **job post** and the app pulls out the vocabulary worth
+mirroring, sorted into the three buckets a recruiter skims for: technical
+terms, action verbs, and professional skills. The **keyword coverage** panel on
+the right then tracks which of them your draft actually says, counts them per
+bucket, and highlights each one inside the resume text as you work. Terms with
+no highlight are the gaps.
+
+The middle is the **canvas**, the resume itself. Drag a record out of the bank
+and it files itself under the section its kind belongs to; drag it into a
+different section to override that. Sections can be reordered, renamed to the
+ad's own wording, and removed. Within a section you can reorder entries and
+drop individual bullets, which is how you get the most relevant lines to the
+top and keep the page to one.
+
+**Tailor to this ad** hands the draft and the ad to Claude. What comes back is
+a reviewable set of changes, one checkbox each, with a reason attached: reorder
+these entries, drop this bullet, reword that one in the ad's language. Approve
+the ones you want and leave the rest. It can only move, drop and reword what is
+already in your bank. There is no operation that invents a record, so it cannot
+give you experience you did not enter.
+
+**Push to resume** writes the draft out as a LaTeX version in **Resumes**,
+where it compiles to a PDF like any other. Push again after more edits and it
+updates the same version, unless you have hand-edited that version in the
+meantime, in which case it stops and shows you what it would overwrite.
 
 ### Writing your resume
 

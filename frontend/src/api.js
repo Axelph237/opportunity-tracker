@@ -21,16 +21,23 @@ async function send(path, options = {}) {
   }
 
   if (!response.ok) {
-    let detail = `${response.status} ${response.statusText}`
+    let message = `${response.status} ${response.statusText}`
+    let detail = null
     try {
       const body = await response.json()
-      if (body?.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail)
+      if (body?.detail) {
+        detail = body.detail
+        message = typeof detail === 'string' ? detail : JSON.stringify(detail)
+      }
     } catch {
       /* response had no JSON body */
     }
     // 502/503/504 from the dev proxy mean the API never answered at all.
-    if (response.status >= 502 && response.status <= 504) throw new ApiOfflineError(detail)
-    throw new Error(detail)
+    if (response.status >= 502 && response.status <= 504) throw new ApiOfflineError(message)
+    // Some answers are not failures to report. A caller needs the status to
+    // tell a push refused over a hand edit from a push that went wrong, and
+    // the detail to show the user the edit it refused over.
+    throw Object.assign(new Error(message), { status: response.status, detail })
   }
 
   return response
@@ -153,6 +160,38 @@ export const api = {
   // Straight to an <img>, so a URL rather than a fetch. Unknown or untracked
   // domains 404 and the caller falls back to a generic glyph.
   faviconUrl: (domain) => `${BASE}/favicons/${encodeURIComponent(domain)}`,
+
+  bankEntries: () => get('/bank/entries'),
+  createBankEntry: (body) => post('/bank/entries', body),
+  reorderBankEntries: (ids) => post('/bank/entries/reorder', { ids }),
+  importBank: () => post('/bank/import'),
+  bankEntry: (id) => get(`/bank/entries/${id}`),
+  updateBankEntry: (id, body) => patch(`/bank/entries/${id}`, body),
+  deleteBankEntry: (id) => del(`/bank/entries/${id}`),
+  createBankBullet: (entryId, body) => post(`/bank/entries/${entryId}/bullets`, body),
+  updateBankBullet: (id, body) => patch(`/bank/bullets/${id}`, body),
+  deleteBankBullet: (id) => del(`/bank/bullets/${id}`),
+
+  jobPosts: () => get('/job-posts'),
+  createJobPost: (body) => post('/job-posts', body),
+  jobPost: (id) => get(`/job-posts/${id}`),
+  updateJobPost: (id, body) => patch(`/job-posts/${id}`, body),
+  deleteJobPost: (id) => del(`/job-posts/${id}`),
+  fetchJobPost: (id) => post(`/job-posts/${id}/fetch`),
+  extractJobKeywords: (id, refresh = false) => post(`/job-posts/${id}/keywords${query({ refresh })}`),
+
+  drafts: () => get('/drafts'),
+  createDraft: (body) => post('/drafts', body),
+  draft: (id) => get(`/drafts/${id}`),
+  updateDraft: (id, body) => patch(`/drafts/${id}`, body),
+  deleteDraft: (id) => del(`/drafts/${id}`),
+  placeDraftEntry: (id, body) => post(`/drafts/${id}/placements`, body),
+  draftCoverage: (id) => get(`/drafts/${id}/coverage`),
+  draftLatex: (id) => get(`/drafts/${id}/latex`),
+  pushDraft: (id, force = false) => post(`/drafts/${id}/push${query({ force })}`),
+  tailorDraft: (id) => post(`/drafts/${id}/tailor`),
+  draftProposals: (id) => get(`/drafts/${id}/proposals`),
+  resolveProposal: (id, body) => post(`/proposals/${id}/resolve`, body),
 
   settings: () => get('/settings'),
   checkClaudePath: (path) => post('/settings/claude-path', { path }),
