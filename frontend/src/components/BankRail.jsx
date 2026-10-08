@@ -72,7 +72,7 @@ export default function BankRail({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-outline-variant px-3 py-2">
         <span className="label-data">Experience bank</span>
-        <button type="button" className="btn" onClick={onCreate} title="Add a record by hand">
+        <button type="button" className="btn" onClick={() => onCreate()} title="Add a record by hand">
           <PlusIcon />
           New
         </button>
@@ -111,7 +111,7 @@ export default function BankRail({
             <p className="text-on-surface-variant">
               Import from your resume above to fill it in one go, or add the first record yourself.
             </p>
-            <button type="button" className="btn" onClick={onCreate}>
+            <button type="button" className="btn" onClick={() => onCreate()}>
               <PlusIcon />
               Add the first record
             </button>
@@ -124,9 +124,22 @@ export default function BankRail({
               <section key={value}>
                 <h2 className="label-data sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-outline-variant bg-surface-container-low px-3 py-1.5">
                   <span>{label}</span>
-                  {/* Decoration. The list below already tells a screen reader
-                      how many records are in the group. */}
-                  <span aria-hidden="true">{group.length}</span>
+                  <span className="flex items-center gap-2">
+                    {/* Decoration. The list below already tells a screen reader
+                        how many records are in the group. */}
+                    <span aria-hidden="true">{group.length}</span>
+                    <button
+                      type="button"
+                      // Not "add a {kind} record": the kinds start with
+                      // vowels often enough that the article would be wrong.
+                      aria-label={`Add a record to ${label}`}
+                      title={`Add a record to ${label}`}
+                      className="shrink-0 text-on-surface-variant transition-colors hover:text-primary"
+                      onClick={() => onCreate(value)}
+                    >
+                      <PlusIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </span>
                 </h2>
                 <ul>
                   {group.map((entry) => (

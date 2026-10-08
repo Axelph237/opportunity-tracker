@@ -475,7 +475,7 @@ export default function Builder() {
             importing={importing}
             draggingId={draggingEntry?.id ?? null}
             onImport={runImport}
-            onCreate={() => setEditing({})}
+            onCreate={(kind) => setEditing(kind ? { kind } : {})}
             onEdit={setEditing}
             onDragStart={setDraggingEntry}
             onDragEnd={() => setDraggingEntry(null)}
@@ -561,8 +561,11 @@ export default function Builder() {
       >
         {editing ? (
           <BankEntryForm
-            key={editing.id ?? 'new'}
-            entry={editing.id ? editing : null}
+            // A blank form opened from a group heading is seeded with that
+            // group's kind, so the key has to change with it or the open form
+            // keeps the kind it was first opened on.
+            key={editing.id ?? `new:${editing.kind ?? ''}`}
+            entry={editing.id || editing.kind ? editing : null}
             busy={busy}
             onSave={saveEntry}
             onDelete={deleteEntry}

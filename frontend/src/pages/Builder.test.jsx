@@ -514,3 +514,43 @@ describe('Builder / pushing to a resume', () => {
     expect(api.pushDraft).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('Builder / adding into a group', () => {
+  const PROJECT = { id: 2, kind: 'project', title: 'Delphi', bullets: [] }
+
+  it('opens the editor on the kind of the group whose plus was pressed', async () => {
+    const user = userEvent.setup()
+    api.createBankEntry.mockResolvedValue({ id: 9 })
+    await setup({ bank: [BANK[0], PROJECT] })
+
+    await user.click(screen.getByRole('button', { name: 'Add a record to Project' }))
+    const panel = await screen.findByRole('dialog')
+    await user.type(within(panel).getByRole('textbox', { name: /project/i }), 'SHEQ')
+    await user.click(within(panel).getByRole('button', { name: /save/i }))
+
+    await waitFor(() =>
+      expect(api.createBankEntry).toHaveBeenCalledWith(expect.objectContaining({ kind: 'project' })),
+    )
+  })
+
+  it('switches kind when a second group is pressed with the panel still open', async () => {
+    // The rail stays reachable behind the panel, so this is a real path. The
+    // form is keyed, and a key that did not move with the kind left the open
+    // form on whichever group was pressed first.
+    const user = userEvent.setup()
+    api.createBankEntry.mockResolvedValue({ id: 9 })
+    await setup({ bank: [BANK[0], PROJECT] })
+
+    await user.click(screen.getByRole('button', { name: 'Add a record to Project' }))
+    await screen.findByRole('dialog')
+    await user.click(screen.getByRole('button', { name: 'Add a record to Experience' }))
+
+    const panel = await screen.findByRole('dialog')
+    await user.type(within(panel).getByRole('textbox', { name: /role/i }), 'Intern')
+    await user.click(within(panel).getByRole('button', { name: /save/i }))
+
+    await waitFor(() =>
+      expect(api.createBankEntry).toHaveBeenCalledWith(expect.objectContaining({ kind: 'experience' })),
+    )
+  })
+})

@@ -138,3 +138,40 @@ describe('entryDates', () => {
     expect(entryDates(entry({ start_date: null, end_date: null }))).toBe('')
   })
 })
+
+describe('BankRail / adding into a group', () => {
+  const twoKinds = [entry(), entry({ id: 2, kind: 'project', title: 'Delphi', organization: null })]
+
+  it('offers an add button on every group that is showing', () => {
+    setup({ entries: twoKinds })
+
+    expect(screen.getByRole('button', { name: 'Add a record to Experience' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add a record to Project' })).toBeInTheDocument()
+  })
+
+  it("names the group's kind, so the editor opens on the row that was pressed", async () => {
+    const user = userEvent.setup()
+    const { onCreate } = setup({ entries: twoKinds })
+
+    await user.click(screen.getByRole('button', { name: 'Add a record to Project' }))
+
+    expect(onCreate).toHaveBeenCalledWith('project')
+  })
+
+  it('asks for no kind at all from the rail-wide button', async () => {
+    // It used to be wired straight to onClick, which handed the click event
+    // over as the kind the moment onCreate started reading one.
+    const user = userEvent.setup()
+    const { onCreate } = setup({ entries: twoKinds })
+
+    await user.click(screen.getByRole('button', { name: /^new$/i }))
+
+    expect(onCreate).toHaveBeenCalledWith()
+  })
+
+  it('leaves the add button out of the heading a screen reader announces', () => {
+    setup({ entries: twoKinds })
+
+    expect(screen.getByRole('heading', { name: 'Experience' })).toBeInTheDocument()
+  })
+})

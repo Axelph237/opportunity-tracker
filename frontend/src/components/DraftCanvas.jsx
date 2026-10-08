@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import HighlightedText from './HighlightedText'
-import { TrashIcon } from './icons'
+import { DragHandleIcon, TrashIcon } from './icons'
 import { moved } from './reorder'
 
 /**
@@ -243,7 +243,10 @@ function Placement({ placement, inline, terms, bankText, focused, dragging, item
   )
 }
 
-function Section({ section, terms, bankText, focusedPlacement, accepting, onBody, onDropEntry }) {
+function Section({
+  section, terms, bankText, focusedPlacement, accepting, drag, dragging, moveBy,
+  onBody, onDropEntry,
+}) {
   const [over, setOver] = useState(false)
   const placements = section.placements || []
   const refs = placements.map((placement) => placement.ref)
@@ -261,13 +264,19 @@ function Section({ section, terms, bankText, focusedPlacement, accepting, onBody
 
   return (
     <section
+      // Two drags land here and only one can be live at a time. The reorder
+      // handlers return immediately unless a section is being dragged, and
+      // `accepting` is only set while a bank record is.
+      onDragEnter={drag.onDragEnter}
       onDragOver={(event) => {
+        drag.onDragOver(event)
         if (!accepting) return
         event.preventDefault()
         setOver(true)
       }}
       onDragLeave={() => setOver(false)}
       onDrop={(event) => {
+        drag.onDrop(event)
         if (!accepting) return
         event.preventDefault()
         // The canvas behind this takes the same drop and routes it to the
@@ -278,9 +287,23 @@ function Section({ section, terms, bankText, focusedPlacement, accepting, onBody
       }}
       className={`rounded border transition-colors ${
         over ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface'
-      }`}
+      } ${dragging ? 'opacity-40' : ''}`}
     >
       <header className="flex items-center gap-2 border-b border-outline-variant px-3 py-1.5">
+        {/* Only the grip is draggable. Making the whole section draggable stops
+            the rename field beside it from taking a text selection. */}
+        <button
+          type="button"
+          draggable
+          onDragStart={drag.onDragStart}
+          onDragEnd={drag.onDragEnd}
+          onKeyDown={arrowMove(section.ref, moveBy)}
+          aria-label={`Reorder the ${section.label} section`}
+          title="Drag to reorder, or press Alt with an arrow key"
+          className="shrink-0 cursor-grab text-on-surface-variant transition-colors hover:text-on-surface"
+        >
+          <DragHandleIcon />
+        </button>
         <input
           key={section.ref}
           // No width cap: the deck's advice is to rename a section to the ad's
@@ -372,6 +395,12 @@ export default function DraftCanvas({
 
   const onBody = (update) => onChange(update({ ...body, sections }))
 
+  const sectionOrder = useServerReorder(
+    sections.map((section) => section.ref),
+    (next) => onBody((current) => editSections(current, (list) => sortByRef(list, next))),
+  )
+  const sectionByRef = new Map(sections.map((section) => [section.ref, section]))
+
   // Jumping here from a keyword chip in the coverage panel.
   useEffect(() => {
     if (!focusedPlacement) return
@@ -420,18 +449,25 @@ export default function DraftCanvas({
         }}
       >
         {sections.length ? (
-          sections.map((section) => (
-            <Section
-              key={section.ref}
-              section={section}
-              terms={terms}
-              bankText={bankText}
-              focusedPlacement={focusedPlacement}
-              accepting={Boolean(droppingEntry)}
-              onBody={onBody}
-              onDropEntry={dropEntry}
-            />
-          ))
+          sectionOrder.order.map((ref) => {
+            const section = sectionByRef.get(ref)
+            if (!section) return null
+            return (
+              <Section
+                key={ref}
+                section={section}
+                terms={terms}
+                bankText={bankText}
+                focusedPlacement={focusedPlacement}
+                accepting={Boolean(droppingEntry)}
+                drag={sectionOrder.itemProps(ref)}
+                dragging={sectionOrder.dragging === ref}
+                moveBy={sectionOrder.moveBy}
+                onBody={onBody}
+                onDropEntry={dropEntry}
+              />
+            )
+          })
         ) : (
           <div className="rounded border border-dashed border-outline-variant px-6 py-12 text-center">
             <p className="text-on-surface-variant">

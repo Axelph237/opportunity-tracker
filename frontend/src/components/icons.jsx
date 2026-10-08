@@ -27,6 +27,7 @@ import {
   Copy,
   Diamond,
   Dog,
+  DotsSixVertical,
   DownloadSimple,
   FileCode,
   FilePdf,
@@ -103,6 +104,11 @@ export function SiteIcon({ className = 'h-4 w-4' }) {
 
 export function MinusIcon({ className = 'h-4 w-4' }) {
   return <Minus className={`shrink-0 ${className}`} aria-hidden="true" />
+}
+
+/** The grip that marks a control as the thing you drag to reorder by. */
+export function DragHandleIcon({ className = 'h-4 w-4' }) {
+  return <DotsSixVertical className={`shrink-0 ${className}`} aria-hidden="true" />
 }
 
 export function PlusIcon({ className = 'h-4 w-4' }) {
