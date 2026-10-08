@@ -183,4 +183,7 @@ def render_document(template: str, body: dict) -> str:
             f"The resume template has no {BODY_MARKER} marker, so there is nowhere "
             "to put the draft. Add the marker where the body belongs."
         )
-    return source.replace(BODY_MARKER, render_body(body))
+    # The first marker is where the body belongs. Replacing all of them would
+    # print the whole resume once per marker; the ones left behind are LaTeX
+    # comments and cost the document nothing.
+    return source.replace(BODY_MARKER, render_body(body), 1)
