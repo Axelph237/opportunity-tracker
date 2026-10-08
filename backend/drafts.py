@@ -631,13 +631,22 @@ def push_draft(draft_id: int, *, force: bool = False) -> dict[str, Any]:
     instance_id = draft.get("resume_instance_id")
     current = _instance_latex(instance_id)
     if current is None:
+        # No variant behind the draft, or one that has since been deleted.
+        # Either way `pushed_latex` describes a row nobody can lose work from,
+        # so there is nothing here to refuse over. Minting the variant on this
+        # branch alone is also what stops a refused push leaving one behind.
+        #
         # `resumes.create_instance` opens connections of its own, so it has to
         # finish before this function opens a write of its own.
         instance_id = resumes.create_instance(draft["name"], latex_source="")["id"]
-        current = ""
-
-    if current != (draft.get("pushed_latex") or "") and not force:
-        raise PushConflict(draft_id, instance_id, latex, current, draft.get("pushed_latex") or "")
+    else:
+        untouched = current == (draft.get("pushed_latex") or "")
+        # A variant already holding exactly what we are about to write has no
+        # work in it for the push to discard, hand-edited or not.
+        no_op = current == latex
+        if not (untouched or no_op or force):
+            raise PushConflict(draft_id, instance_id, latex, current,
+                               draft.get("pushed_latex") or "")
 
     resumes.update_instance(instance_id, {"latex": latex})
     with get_db() as conn:

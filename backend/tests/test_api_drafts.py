@@ -686,6 +686,42 @@ def test_an_untouched_variant_does_not_read_as_diverged(app_client, resume_tmp):
     assert app_client.get(f"/api/drafts/{draft['id']}/latex").json()["diverged"] is False
 
 
+def test_pushing_after_the_variant_was_deleted_starts_exactly_one_fresh_one(
+    app_client, resume_tmp
+):
+    """A variant that is gone is not a hand edit. `pushed_latex` then describes
+    a row nobody can lose work from, so refusing protects nothing, and every
+    refused retry minted another empty variant on its way to saying no."""
+    draft, _entry, _placement = placed(app_client, bullets=("Ran the rig",))
+    first = app_client.post(f"/api/drafts/{draft['id']}/push").json()
+    resumes.delete_instance(first["resume_instance_id"])
+    before = len(resumes.list_instances())
+
+    for _ in range(3):
+        again = app_client.post(f"/api/drafts/{draft['id']}/push")
+        assert again.status_code == 200, again.text
+
+    assert len(resumes.list_instances()) == before + 1
+    replacement = again.json()["resume_instance_id"]
+    assert replacement != first["resume_instance_id"]
+    assert resumes.get_instance(replacement)["latex"] == again.json()["latex"]
+    assert app_client.get(f"/api/drafts/{draft['id']}").json()["resume_instance_id"] == replacement
+
+
+def test_a_push_that_would_change_nothing_is_not_a_conflict(app_client, resume_tmp):
+    """Refusing protects work a push would discard. A variant that already
+    holds exactly what the draft renders has no such work in it."""
+    draft, _entry, _placement = placed(app_client, bullets=("Ran the rig",))
+    rendered = app_client.get(f"/api/drafts/{draft['id']}/latex").json()["latex"]
+    instance = resumes.create_instance("Target", latex_source=rendered)
+    app_client.patch(f"/api/drafts/{draft['id']}", json={"resume_instance_id": instance["id"]})
+
+    response = app_client.post(f"/api/drafts/{draft['id']}/push")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["latex"] == rendered
+
+
 # ------------------------------------------------------------------- coverage
 
 @pytest.fixture
