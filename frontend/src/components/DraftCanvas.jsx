@@ -283,7 +283,9 @@ function Section({ section, terms, bankText, focusedPlacement, accepting, onBody
       <header className="flex items-center gap-2 border-b border-outline-variant px-3 py-1.5">
         <input
           key={section.ref}
-          className="field label-data max-w-[18rem] flex-1 bg-transparent"
+          // No width cap: the deck's advice is to rename a section to the ad's
+          // own wording, and “Research and Project Experience” was clipped at 18rem.
+          className="field label-data min-w-0 flex-1 bg-transparent"
           defaultValue={section.label}
           aria-label={`Rename the ${section.label} section`}
           onBlur={(event) => {

@@ -279,10 +279,10 @@ def test_deleting_an_entry_through_the_api_takes_its_bullets_with_it(app_client)
 @pytest.mark.parametrize(
     "entry,expected",
     [
-        ({"start_date": "Jun 2026", "end_date": "Sep 2026"}, "Jun 2026 -- Sep 2026"),
-        ({"start_date": "Jun 2026", "is_current": True}, "Jun 2026 -- Present"),
+        ({"start_date": "Jun 2026", "end_date": "Sep 2026"}, "Jun 2026 – Sep 2026"),
+        ({"start_date": "Jun 2026", "is_current": True}, "Jun 2026 – Present"),
         ({"start_date": "Jun 2026", "end_date": "Sep 2026", "is_current": True},
-         "Jun 2026 -- Present"),
+         "Jun 2026 – Present"),
         ({"start_date": "June 2027"}, "June 2027"),
         ({"end_date": "May 2025"}, "May 2025"),
         ({}, ""),

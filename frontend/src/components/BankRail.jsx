@@ -1,10 +1,10 @@
 import { ENTRY_KINDS } from './BankEntryForm'
 import { AI_CALL_TITLE, AiSpark, EditIcon, PlusIcon } from './icons'
 
-/** "Jun 2026 -- Sep 2026", or whatever half of it the record actually has. */
+/** "Jun 2026 – Sep 2026", or whatever half of it the record actually has. */
 export function entryDates(entry) {
   const end = entry.is_current ? 'Present' : entry.end_date
-  if (entry.start_date && end) return `${entry.start_date} -- ${end}`
+  if (entry.start_date && end) return `${entry.start_date} – ${end}`
   return entry.start_date || end || ''
 }
 

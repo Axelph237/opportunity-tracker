@@ -93,7 +93,7 @@ describe('BankRail / the records', () => {
   it('shows the employer, the dates and how many bullets are behind the record', () => {
     setup()
     const row = screen.getByText('Research Assistant').closest('li')
-    expect(within(row).getByText('Fermilab · Jun 2026 -- Sep 2026')).toBeInTheDocument()
+    expect(within(row).getByText('Fermilab · Jun 2026 – Sep 2026')).toBeInTheDocument()
     expect(within(row).getByText('· 1')).toBeInTheDocument()
   })
 
@@ -125,11 +125,11 @@ describe('BankRail / the records', () => {
 
 describe('entryDates', () => {
   it('joins the two halves the way a resume prints them', () => {
-    expect(entryDates(entry())).toBe('Jun 2026 -- Sep 2026')
+    expect(entryDates(entry())).toBe('Jun 2026 – Sep 2026')
   })
 
   it('prints Present for a role that has not ended', () => {
-    expect(entryDates(entry({ is_current: true, end_date: null }))).toBe('Jun 2026 -- Present')
+    expect(entryDates(entry({ is_current: true, end_date: null }))).toBe('Jun 2026 – Present')
   })
 
   it('does not leave a dangling dash when only one date is known', () => {

@@ -72,7 +72,10 @@ def format_dates(entry: dict[str, Any]) -> str:
     start = (entry.get("start_date") or "").strip()
     end = "Present" if entry.get("is_current") else (entry.get("end_date") or "").strip()
     if start and end:
-        return f"{start} -- {end}"
+        # An en dash, not TeX's `--`. This string is shown in the browser as
+        # well as written into the document, and the browser prints `--` as
+        # two hyphens. The dash survives the escaper and the engine untouched.
+        return f"{start} – {end}"
     return start or end
 
 

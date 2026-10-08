@@ -258,7 +258,7 @@ def test_placing_an_entry_prints_its_dates_once_rather_than_on_every_render(app_
 
     drafts.place_entry(draft["id"], entry["id"])
 
-    assert only_placement(app_client, draft["id"])["dates"] == "Jun 2026 -- Present"
+    assert only_placement(app_client, draft["id"])["dates"] == "Jun 2026 – Present"
 
 
 def test_placing_an_entry_snapshots_its_text_so_a_later_bank_edit_leaves_it_alone(app_client):
@@ -846,7 +846,7 @@ def test_add_entry_snapshots_the_record_the_same_way_a_drag_would(app_client):
 
     placement = only_placement(app_client, draft["id"])
     assert placement["title"] == "Lab assistant"
-    assert placement["dates"] == "Jun 2026 -- Sep 2026"
+    assert placement["dates"] == "Jun 2026 – Sep 2026"
     assert placement["bullets"][0]["source_bullet_id"] == entry["bullets"][0]["id"]
 
 

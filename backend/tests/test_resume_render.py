@@ -106,6 +106,15 @@ def test_a_url_percent_encodes_the_characters_tex_cannot_hand_through():
     assert r"\href{https://ex.com/\%7Ba\%7D\%5Cb}" in rendered
 
 
+def test_an_en_dash_in_a_date_reaches_the_document_as_itself():
+    """The date string is shown in the browser and written into the document,
+    so it carries a real en dash rather than TeX's `--`. Measured against the
+    shipped template, it compiles and extracts back out of the page."""
+    rendered = render(placement(dates="Jun 2026 \u2013 Sep 2026"))
+
+    assert "Jun 2026 \u2013 Sep 2026" in rendered
+
+
 # ------------------------------------------------------- layout off the registry
 
 def test_an_experience_fills_the_four_argument_subheading_in_the_right_order():
