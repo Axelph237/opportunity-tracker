@@ -82,8 +82,15 @@ const BODY = {
 
 const DRAFT = { id: 9, name: 'ACME intern', job_post_id: 4, resume_instance_id: null, body: BODY, pushed_at: null }
 
+// `CoverageReport` as models.py declares it. The terms ride on `keywords`:
+// a fixture that invented a `coverage` field would agree with a page reading
+// the same invented field and report 0 of 0 to the user forever.
 const coverageOf = (covered) => ({
-  coverage: [
+  draft_id: 9,
+  job_post_id: 4,
+  covered: covered ? 1 : 0,
+  total: 2,
+  keywords: [
     { term: 'Qiskit', bucket: 'technical', covered, hits: covered ? 1 : 0, where: covered ? ['p1'] : [] },
     { term: 'optimize', bucket: 'verb', covered: false, hits: 0, where: [] },
   ],

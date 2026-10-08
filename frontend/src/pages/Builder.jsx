@@ -160,7 +160,7 @@ export default function Builder() {
     setCoverageLoading(true)
     try {
       const report = await api.draftCoverage(id)
-      setCoverage(report?.coverage || [])
+      setCoverage(report?.keywords || [])
       setError(null)
     } catch (err) {
       setError(err.message)
