@@ -40,8 +40,14 @@ function SaveState({ saving, dirty, savedAt }) {
   return null
 }
 
-/** The rail of saved variants. Width and framing are the parent's business. */
-function InstanceList({ instances, selectedId, onSelect, onCreate, busy }) {
+/**
+ * Every resume you have, composed or written. Width and framing are the
+ * parent's business.
+ *
+ * A row with nothing pushed yet has no document to open here, so it is a link
+ * to the canvas it does live on rather than a dead selection.
+ */
+function ResumeRail({ rows, selectedId, onSelect, onCreate, busy }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-outline-variant px-3 py-2">
@@ -52,39 +58,69 @@ function InstanceList({ instances, selectedId, onSelect, onCreate, busy }) {
         </button>
       </div>
       <ul className="min-h-0 flex-1 overflow-y-auto">
-        {instances.map((instance) => (
-          <li key={instance.id}>
-            <button
-              type="button"
-              onClick={() => onSelect(instance.id)}
-              aria-current={instance.id === selectedId}
-              className={`w-full border-b border-outline-variant/60 px-3 py-2.5 text-left transition-colors ${
-                instance.id === selectedId
-                  ? 'border-l-2 border-l-primary bg-secondary-container pl-[10px] text-on-secondary-container'
-                  : 'border-l-2 border-l-transparent pl-[10px] hover:bg-surface-container-high'
-              }`}
-            >
-              <span className="flex items-center gap-1.5">
-                <span className="line-clamp-1 flex-1 text-on-surface">{instance.name}</span>
-                {instance.is_default ? (
-                  <StarIcon className="h-3.5 w-3.5 shrink-0 text-primary" />
-                ) : null}
-              </span>
-              <span className="mt-0.5 flex items-center gap-2 font-mono text-data text-on-surface-variant">
-                {instance.linked_count ? `${instance.linked_count} linked` : 'unlinked'}
-                {instance.compiled_at && !instance.compile_ok ? (
-                  <span className="text-error">· errors</span>
-                ) : null}
-              </span>
-            </button>
-          </li>
-        ))}
+        {rows.map((row) => {
+          const selected = row.pushed && row.instance_id === selectedId
+          const frame = `block w-full border-b border-outline-variant/60 px-3 py-2.5 text-left transition-colors ${
+            selected
+              ? 'border-l-2 border-l-primary bg-secondary-container pl-[10px] text-on-secondary-container'
+              : 'border-l-2 border-l-transparent pl-[10px] hover:bg-surface-container-high'
+          }`
+          const title = (
+            <span className="flex items-center gap-1.5">
+              <span className="line-clamp-1 flex-1 text-on-surface">{row.name}</span>
+              {row.composed ? (
+                <NavIcon name="builder" className="h-3.5 w-3.5 shrink-0 text-on-surface-variant" />
+              ) : null}
+              {row.is_default ? <StarIcon className="h-3.5 w-3.5 shrink-0 text-primary" /> : null}
+            </span>
+          )
+          const caption = row.pushed
+            ? [row.linked_count ? `${row.linked_count} linked` : 'unlinked',
+               row.has_pdf && !row.compile_ok ? 'errors' : null].filter(Boolean).join(' · ')
+            : 'on the canvas, not pushed'
+
+          return (
+            <li key={row.key}>
+              {row.pushed ? (
+                <button type="button" onClick={() => onSelect(row.instance_id)}
+                        aria-current={selected} className={frame}>
+                  {title}
+                  <span className="mt-0.5 block font-mono text-data text-on-surface-variant">
+                    {caption}
+                  </span>
+                </button>
+              ) : (
+                <Link to={`/builder?draft=${row.draft_id}`} className={frame}
+                      title="Nothing has been pushed from this yet. Open the canvas.">
+                  {title}
+                  <span className="mt-0.5 block font-mono text-data text-on-surface-variant">
+                    {caption}
+                  </span>
+                </Link>
+              )}
+            </li>
+          )
+        })}
       </ul>
     </div>
   )
 }
 
+/**
+ * Which resume the editor should open.
+ *
+ * Only a row with a document behind it can be opened here, so a draft nobody
+ * has pushed is skipped rather than selected into an empty editor.
+ */
+function firstOpenable(rows, asked) {
+  const openable = rows.filter((row) => row.pushed)
+  if (openable.some((row) => row.instance_id === asked)) return asked
+  return openable.find((row) => row.is_default)?.instance_id ?? openable[0]?.instance_id ?? null
+}
+
 export default function Resumes({ onMutate }) {
+  // Every resume, composed or written. The editor can only open the ones
+  // with a document behind them; the rest link to the canvas.
   const [instances, setInstances] = useState([])
   const [params] = useSearchParams()
   const [selectedId, setSelectedId] = useState(null)
@@ -129,7 +165,7 @@ export default function Resumes({ onMutate }) {
   })
 
   const refreshList = useCallback(async () => {
-    const rows = await api.resumes()
+    const rows = await api.resumeLibrary()
     setInstances(rows)
     return rows
   }, [])
@@ -139,15 +175,13 @@ export default function Resumes({ onMutate }) {
     let cancelled = false
     ;(async () => {
       try {
-        const [rows, engineStatus] = await Promise.all([api.resumes(), api.latexStatus()])
+        const [rows, engineStatus] = await Promise.all([api.resumeLibrary(), api.latexStatus()])
         if (cancelled) return
         setInstances(rows)
         setEngine(engineStatus)
         // Arriving from the Builder opens the resume it just pushed, rather
         // than the scored one.
-        const asked = Number(params.get('instance'))
-        const wanted = rows.some((row) => row.id === asked) ? asked : null
-        setSelectedId(wanted ?? rows.find((row) => row.is_default)?.id ?? rows[0]?.id ?? null)
+        setSelectedId(firstOpenable(rows, Number(params.get('instance'))))
       } catch (err) {
         if (!cancelled) setError(err.message)
       } finally {
@@ -315,7 +349,7 @@ export default function Resumes({ onMutate }) {
     act(async () => {
       await api.deleteResumeInstance(instance.id)
       const rows = await refreshList()
-      setSelectedId(rows.find((row) => row.is_default)?.id ?? rows[0]?.id ?? null)
+      setSelectedId(firstOpenable(rows))
       onMutate?.()
     })
   }
@@ -407,8 +441,8 @@ export default function Resumes({ onMutate }) {
         {/* Versions above, assets below, with their own draggable divider. */}
         <div className="flex h-full min-h-0 shrink-0 flex-col" style={{ width: railWidth }}>
           <div className="min-h-0 flex-1">
-            <InstanceList
-              instances={instances}
+            <ResumeRail
+              rows={instances}
               selectedId={selectedId}
               onSelect={setSelectedId}
               onCreate={() => create(null)}
@@ -449,9 +483,18 @@ export default function Resumes({ onMutate }) {
           <div className="flex flex-1 items-center justify-center p-10 text-center">
             <div className="max-w-md space-y-3">
               <p className="text-on-surface-variant">
-                No resumes yet. Create one to start from your uploaded{' '}
-                <span className="font-mono">resume.tex</span>, or from a template if you have not
-                uploaded one.
+                {instances.length ? (
+                  <>
+                    Nothing here has been pushed into a document yet. Open one on the canvas and
+                    push it, or write a new one from source.
+                  </>
+                ) : (
+                  <>
+                    No resumes yet. Create one to start from your uploaded{' '}
+                    <span className="font-mono">resume.tex</span>, or from a template if you have
+                    not uploaded one.
+                  </>
+                )}
               </p>
               <button type="button" className="btn btn-primary" onClick={() => create(null)} disabled={busy}>
                 <PlusIcon />

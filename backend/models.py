@@ -822,6 +822,26 @@ class ResumeContact(BaseModel):
     links: list[ContactLink] = Field(default_factory=list)
 
 
+class LibraryResume(BaseModel):
+    """One resume in the library, whichever halves of it exist.
+
+    A resume can be composed on the canvas, written as source, or both. The
+    two ids say which, and `key` is the only identifier unique across both.
+    """
+
+    key: str
+    instance_id: Optional[int] = None
+    draft_id: Optional[int] = None
+    name: str
+    composed: bool = False
+    pushed: bool = False
+    has_pdf: bool = False
+    is_default: bool = False
+    compile_ok: bool = False
+    linked_count: int = 0
+    updated_at: Optional[str] = None
+
+
 class ProposalOp(BaseModel):
     """One operation from the closed algebra a proposal may use.
 

@@ -14,6 +14,7 @@ vi.mock('../api', async (importOriginal) => {
     api: {
       ...actual.api,
       resumes: vi.fn(),
+      resumeLibrary: vi.fn(),
       resumeInstance: vi.fn(),
       resumeLinks: vi.fn(),
       createResumeInstance: vi.fn(),
@@ -52,8 +53,12 @@ vi.mock('../components/LatexEditor', () => ({
 const ENGINE = { available: true, path: '/opt/homebrew/bin/tectonic', engine: 'tectonic', version: 'Tectonic 0.15' }
 const NO_ENGINE = { available: false, path: null, engine: null, version: null, candidates: ['tectonic'] }
 
+/**
+ * A rail row. The rail reads the library shape now, so this carries both the
+ * instance fields `detail()` spreads and the library fields beside them.
+ */
 function summary(overrides) {
-  return {
+  const base = {
     id: 1,
     name: 'Base',
     description: null,
@@ -67,6 +72,14 @@ function summary(overrides) {
     created_at: '2026-09-01T10:00:00Z',
     updated_at: '2026-09-22T10:00:00Z',
     ...overrides,
+  }
+  return {
+    ...base,
+    key: `instance:${base.id}`,
+    instance_id: base.id,
+    draft_id: base.draft_id ?? null,
+    composed: base.draft_id != null,
+    pushed: true,
   }
 }
 
@@ -98,7 +111,7 @@ const PDFLATEX_ISSUE = {
  */
 async function setup({ list, instance, links = [], assets = [], engine = ENGINE, route = '/resumes' } = {}) {
   const rows = list ?? [summary()]
-  api.resumes.mockResolvedValue(rows)
+  api.resumeLibrary.mockResolvedValue(rows)
   api.latexStatus.mockResolvedValue(engine)
   api.resumeInstance.mockResolvedValue(instance ?? detail())
   api.resumeLinks.mockResolvedValue(links)
@@ -110,7 +123,9 @@ async function setup({ list, instance, links = [], assets = [], engine = ENGINE,
       </ConfirmProvider>
     </MemoryRouter>,
   )
-  if (rows.length) await screen.findByLabelText('LaTeX source')
+  // The editor only renders for a row with a document behind it. A rail of
+  // nothing but unpushed drafts lands on the empty state instead.
+  if (rows.some((row) => row.pushed)) await screen.findByLabelText('LaTeX source')
   else await screen.findByRole('button', { name: /new resume/i })
   return rendered
 }
@@ -455,5 +470,37 @@ describe('Resumes / the way back to the Builder', () => {
     await setup({ list: [scored], route: '/resumes?instance=9090' })
 
     await waitFor(() => expect(api.resumeInstance).toHaveBeenCalledWith(1))
+  })
+})
+
+describe('Resumes / the rail lists every resume', () => {
+  const unpushed = (overrides) => ({
+    key: 'draft:3', instance_id: null, draft_id: 3, name: 'Still on the canvas',
+    composed: true, pushed: false, has_pdf: false, is_default: false,
+    compile_ok: false, linked_count: 0, updated_at: '2026-09-23T10:00:00Z',
+    ...overrides,
+  })
+
+  it('lists a draft nobody has pushed, as a way back to the canvas', async () => {
+    await setup({ list: [summary(), unpushed()] })
+
+    const link = screen.getByRole('link', { name: /still on the canvas/i })
+    expect(link).toHaveAttribute('href', '/builder?draft=3')
+    expect(screen.getByText(/on the canvas, not pushed/i)).toBeInTheDocument()
+  })
+
+  it('never opens the editor on a row with no document behind it', async () => {
+    // It would be an empty editor over nothing, and a save would have no
+    // resume to write to.
+    await setup({ list: [unpushed(), summary({ id: 9, name: 'Base' })] })
+
+    await waitFor(() => expect(api.resumeInstance).toHaveBeenCalledWith(9))
+    expect(api.resumeInstance).not.toHaveBeenCalledWith(3)
+  })
+
+  it('opens nothing at all when every resume is still a draft', async () => {
+    await setup({ list: [unpushed()] })
+
+    expect(api.resumeInstance).not.toHaveBeenCalled()
   })
 })

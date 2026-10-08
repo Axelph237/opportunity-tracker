@@ -166,6 +166,7 @@ export const api = {
   createBankEntry: (body) => post('/bank/entries', body),
   reorderBankEntries: (ids) => post('/bank/entries/reorder', { ids }),
   importBank: () => post('/bank/import'),
+  resumeLibrary: () => get('/resume-library'),
   resumeContact: () => get('/resume-contact'),
   saveResumeContact: (body) => put('/resume-contact', body),
   bankEntry: (id) => get(`/bank/entries/${id}`),
