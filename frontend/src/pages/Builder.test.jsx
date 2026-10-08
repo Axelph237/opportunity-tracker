@@ -310,8 +310,8 @@ describe('Builder / tailoring', () => {
     kind: 'tailor',
     summary: 'Leads with the simulation work.',
     operations: [
-      { id: 'o1', op: 'RewriteBullet', placement_id: 'p1', bullet_ref: 'b1', text: 'Rebuilt the DAQ pipeline' },
-      { id: 'o2', op: 'DropBullet', placement_id: 'p1', bullet_ref: 'b2' },
+      { op: 'RewriteBullet', placement_id: 'p1', bullet_ref: 'b1', text: 'Rebuilt the DAQ pipeline' },
+      { op: 'DropBullet', placement_id: 'p1', bullet_ref: 'b2' },
     ],
   }
 
@@ -340,8 +340,17 @@ describe('Builder / tailoring', () => {
     await user.click(within(panel).getAllByRole('checkbox')[1])
     await user.click(within(panel).getByRole('button', { name: /apply 1 of 2/i }))
 
+    // `ProposalResolve` is {action, operations}. The whole reviewed set goes
+    // back, because the server treats an operation left out as one the user
+    // did not accept.
     await waitFor(() =>
-      expect(api.resolveProposal).toHaveBeenCalledWith(3, { status: 'applied', accepted: ['o1'] }),
+      expect(api.resolveProposal).toHaveBeenCalledWith(3, {
+        action: 'apply',
+        operations: [
+          { ...PROPOSAL.operations[0], accepted: true },
+          { ...PROPOSAL.operations[1], accepted: false },
+        ],
+      }),
     )
   })
 
@@ -356,7 +365,7 @@ describe('Builder / tailoring', () => {
     await user.click(within(panel).getByRole('button', { name: /discard all/i }))
 
     await waitFor(() =>
-      expect(api.resolveProposal).toHaveBeenCalledWith(3, { status: 'dismissed', accepted: [] }),
+      expect(api.resolveProposal).toHaveBeenCalledWith(3, { action: 'dismiss' }),
     )
   })
 })

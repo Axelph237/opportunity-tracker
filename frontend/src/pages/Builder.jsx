@@ -286,12 +286,12 @@ export default function Builder() {
     }
   }
 
-  const resolveProposal = (accepted) =>
+  const resolveProposal = (operations) =>
     act(async () => {
-      const updated = await api.resolveProposal(proposal.id, {
-        status: accepted ? 'applied' : 'dismissed',
-        accepted: accepted || [],
-      })
+      const updated = await api.resolveProposal(
+        proposal.id,
+        operations ? { action: 'apply', operations } : { action: 'dismiss' },
+      )
       if (updated?.id) setDraft(updated)
       setProposal(null)
       await refreshCoverage(draft.id, Boolean(draft.job_post_id))
