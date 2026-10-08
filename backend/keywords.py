@@ -26,6 +26,7 @@ _MIN_STEM = 4
 _TOKEN_RE = re.compile(r"[A-Za-z0-9+#]+")
 
 _URL_RE = re.compile(r"\b(?:https?://|www\.)[^\s{}\[\]()\\]+", re.IGNORECASE)
+_BARE_PERCENT_RE = re.compile(r"(?<!\\)%")
 
 
 def fold(token: str) -> str:
@@ -65,8 +66,15 @@ def plain_text(latex_or_text: str) -> str:
     heading it leaks the url into the output, so a repo url containing
     "pytorch" would mark the keyword PyTorch covered. Stripping urls first
     removes that whole class of false positive.
+
+    A bare `%` is a percent sign here, not the start of a LaTeX comment. What
+    arrives is a draft bullet the user typed, and the strongest ones are the
+    quantified ones, so reading "cut epoch time 38%" as a comment silently
+    dropped the rest of that entry out of the report. Escaping it first means
+    `strip_latex` leaves it alone and hands the sign back.
     """
-    return strip_latex(_URL_RE.sub(" ", latex_or_text))
+    protected = _BARE_PERCENT_RE.sub(r"\\%", latex_or_text)
+    return strip_latex(_URL_RE.sub(" ", protected))
 
 
 def _needles(term: str, variants: Any) -> list[tuple[str, ...]]:

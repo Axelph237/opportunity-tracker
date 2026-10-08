@@ -145,6 +145,22 @@ def test_plain_text_drops_the_url_and_keeps_the_prose_around_it():
     assert "Delphi" in out
 
 
+def test_a_percent_sign_in_a_bullet_does_not_swallow_the_rest_of_the_entry():
+    """The deck's advice is to quantify, so the strongest bullets are the ones
+    carrying a percent. Read as a LaTeX comment it took every keyword after it
+    out of the report, and the entry looked less relevant the better it was."""
+    segment = "Cut epoch time 38% Built data ingestion on Kubernetes"
+
+    report = coverage([{"term": "Kubernetes"}, {"term": "data ingestion"}], [("p1", segment)])
+
+    assert [row["covered"] for row in report] == [True, True]
+
+
+def test_plain_text_hands_back_a_percent_sign_however_it_was_written():
+    assert plain_text("cut cost 38%") == "cut cost 38%"
+    assert plain_text(r"cut cost 38\%") == "cut cost 38%"
+
+
 def test_the_matcher_imports_nothing_that_needs_a_model_a_socket_or_a_database():
     """Purity is the feature, not a tidiness preference.
 
