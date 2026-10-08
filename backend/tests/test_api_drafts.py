@@ -274,6 +274,23 @@ def test_a_renamed_section_still_takes_the_next_entry_of_its_kind(app_client):
     assert [p["title"] for p in sections[0]["placements"]] == ["Lab assistant", "Teaching assistant"]
 
 
+def test_renaming_a_section_on_the_canvas_keeps_its_key(app_client):
+    """The canvas renames by saving the whole body back. The key has to
+    survive that round trip or the rename splits the section anyway."""
+    draft = make_draft(app_client)
+    drafts.place_entry(draft["id"], make_entry(app_client, title="Lab assistant")["id"])
+    body = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]
+    body["sections"][0]["label"] = "Research Experience"
+    saved = app_client.patch(f"/api/drafts/{draft['id']}", json={"body": body}).json()
+    assert saved["body"]["sections"][0]["key"] == "Experience"
+
+    drafts.place_entry(draft["id"], make_entry(app_client, title="Teaching assistant")["id"])
+
+    sections = app_client.get(f"/api/drafts/{draft['id']}").json()["body"]["sections"]
+    assert [s["label"] for s in sections] == ["Research Experience"]
+    assert [p["title"] for p in sections[0]["placements"]] == ["Lab assistant", "Teaching assistant"]
+
+
 def test_a_section_the_client_sent_without_a_key_still_takes_its_entries(app_client):
     """The canvas saves whole bodies, and a body composed before keys existed
     carries none. Such a section is filed under the label it was created with
