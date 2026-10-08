@@ -822,6 +822,41 @@ class ResumeContact(BaseModel):
     links: list[ContactLink] = Field(default_factory=list)
 
 
+class SlotMarkers(BaseModel):
+    """How a slot is written in the document.
+
+    `open` carries `{name}`, which is where the slot's name goes. The default
+    is a LaTeX comment, so a document using them compiles anywhere with
+    nothing installed.
+    """
+
+    open: str
+    close: str
+
+
+class SlotBlock(BaseModel):
+    """One item inside a slot.
+
+    `kind` is "opaque" for anything the composer's grammar did not recognise.
+    Such a block is written back exactly as it was read, which is what keeps
+    hand-written LaTeX inside a slot safe from the composer.
+    """
+
+    kind: str
+    raw: str
+    heading: Optional[str] = None
+    args: list[str] = Field(default_factory=list)
+    bullets: list[str] = Field(default_factory=list)
+
+
+class DocumentSlot(BaseModel):
+    """A named region of a resume, and what the composer sees in it."""
+
+    name: str
+    key: str
+    blocks: list[SlotBlock] = Field(default_factory=list)
+
+
 class LibraryResume(BaseModel):
     """One resume in the library, whichever halves of it exist.
 

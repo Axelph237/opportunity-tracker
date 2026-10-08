@@ -21,6 +21,7 @@ import advisor
 import bank as bank_module
 import contact as contact_module
 import library as library_module
+import slots as slots_module
 import drafts as drafts_module
 import favicons as favicons_module
 import jobposts
@@ -70,8 +71,10 @@ from models import (
     OpportunityUpdate,
     PlaceEntry,
     ProposalResolve,
+    DocumentSlot,
     LibraryResume,
     ResumeContact,
+    SlotMarkers,
     ResumeDraft,
     ResumeDraftCreate,
     ResumeDraftUpdate,
@@ -1913,6 +1916,32 @@ def extract_job_post_keywords(post_id: int, refresh: bool = False) -> JobPost:
     except ClaudeUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return JobPost(**post)
+
+
+@app.get("/api/slot-markers", response_model=SlotMarkers)
+def read_slot_markers() -> SlotMarkers:
+    return SlotMarkers(**slots_module.markers())
+
+
+@app.put("/api/slot-markers", response_model=SlotMarkers)
+def write_slot_markers(payload: SlotMarkers) -> SlotMarkers:
+    try:
+        return SlotMarkers(**slots_module.save_markers(payload.model_dump()))
+    except slots_module.SlotError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/resumes/{instance_id}/slots", response_model=list[DocumentSlot])
+def read_resume_slots(instance_id: int) -> list[DocumentSlot]:
+    """What the composer may rearrange in this document, and nothing else."""
+    try:
+        source = resumes_module.get_instance(instance_id)["latex"]
+    except resumes_module.ResumeNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    try:
+        return [DocumentSlot(**slot) for slot in slots_module.read(source)]
+    except slots_module.SlotError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/resume-library", response_model=list[LibraryResume])
