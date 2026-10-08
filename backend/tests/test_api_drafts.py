@@ -67,6 +67,28 @@ def test_a_new_draft_starts_with_an_empty_body(app_client):
     assert draft["pushed_latex"] is None
 
 
+@pytest.mark.parametrize("stored", ["{not json", "[]", '"a string"'])
+def test_a_draft_whose_stored_body_is_not_a_document_refuses_to_be_read(app_client, stored):
+    """Reading it as an empty document is worse than failing: the next push
+    writes that empty document over the user's variant and reports success."""
+    draft = make_draft(app_client)
+    with database.get_db() as conn:
+        conn.execute("UPDATE resume_drafts SET body = ? WHERE id = ?", (stored, draft["id"]))
+
+    with pytest.raises(drafts.CorruptDraft):
+        drafts.get_draft(draft["id"])
+
+
+def test_a_proposal_whose_operations_will_not_parse_refuses_to_be_read(app_client):
+    draft = make_draft(app_client)
+    proposal_id = make_proposal(draft["id"], [])
+    with database.get_db() as conn:
+        conn.execute("UPDATE draft_proposals SET operations = '{' WHERE id = ?", (proposal_id,))
+
+    with pytest.raises(drafts.CorruptDraft):
+        drafts.get_proposal(proposal_id)
+
+
 def test_a_draft_cannot_be_attached_to_a_job_post_that_is_not_there(app_client):
     """SQLite refuses the link too, but its IntegrityError names no field and
     comes back as a 500 the user cannot act on."""

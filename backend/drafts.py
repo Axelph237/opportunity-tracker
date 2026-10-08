@@ -37,6 +37,15 @@ class DraftNotFound(LookupError):
     """Raised when a draft or proposal id does not exist."""
 
 
+class CorruptDraft(RuntimeError):
+    """Raised when a stored JSON column is not the shape the column promises.
+
+    Reading it as an empty value instead is how a corrupt row becomes a push
+    that writes an empty resume over the user's variant and reports success,
+    and how a proposal's record of what it offered becomes an empty list.
+    """
+
+
 class PushConflict(RuntimeError):
     """Raised when the linked resume no longer matches what we last wrote to it.
 
@@ -70,9 +79,13 @@ def _json_value(value: Any, fallback: Any) -> Any:
         return deepcopy(fallback)
     try:
         parsed = json.loads(value)
-    except (TypeError, ValueError):
-        return deepcopy(fallback)
-    return parsed if isinstance(parsed, type(fallback)) else deepcopy(fallback)
+    except (TypeError, ValueError) as exc:
+        raise CorruptDraft(f"Stored JSON will not parse: {exc}") from exc
+    if not isinstance(parsed, type(fallback)):
+        raise CorruptDraft(
+            f"Stored JSON is a {type(parsed).__name__}, not a {type(fallback).__name__}."
+        )
+    return parsed
 
 
 def _complete(body: Optional[dict]) -> dict:
