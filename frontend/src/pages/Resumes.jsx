@@ -344,7 +344,7 @@ export default function Resumes({ onMutate }) {
       description="Tailored versions of your resume, written in LaTeX and rendered here."
       error={error}
       scroll={false}
-      contentClassName="px-0 pb-0"
+      padded={false}
       banner={
         engine && !engine.available ? (
           <div className="mb-4 flex items-start gap-3 rounded border border-tertiary/60 bg-tertiary/10 px-4 py-2.5">

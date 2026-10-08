@@ -10,6 +10,11 @@ import { NavIcon } from './icons'
  * `icon` is usually a nav-icon name, and this decides its size and tone so that
  * every page heading matches without each one repeating the classes. A node is
  * accepted too, for the agent, whose icon the user chooses.
+ *
+ * `padded` is a prop rather than something a caller switches off through
+ * `contentClassName`. A `px-0` passed there loses to the default `px-8`: both
+ * carry the same specificity, so the generated stylesheet's order decides, and
+ * a page that asked for a flush edge silently got the padding anyway.
  */
 export default function PageLayout({
   title,
@@ -20,6 +25,7 @@ export default function PageLayout({
   error,
   banner,
   scroll = true,
+  padded = true,
   contentClassName = '',
   children,
 }) {
@@ -51,7 +57,7 @@ export default function PageLayout({
       </div>
 
       <div
-        className={`min-h-0 flex-1 px-8 ${
+        className={`min-h-0 flex-1 ${padded ? 'px-8' : ''} ${
           scroll ? 'overflow-auto' : 'flex flex-col overflow-hidden'
         } ${contentClassName}`}
       >

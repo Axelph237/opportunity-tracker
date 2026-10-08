@@ -464,7 +464,7 @@ export default function Builder() {
       description="Compose a resume for one job ad out of your experience bank, and watch its keywords go covered."
       error={error}
       scroll={false}
-      contentClassName="px-0 pb-0"
+      padded={false}
       actions={actions}
     >
       <div className="flex h-full min-h-0">
