@@ -4,6 +4,7 @@ import Confirmations from './Confirmations'
 import Resume from './Resume'
 import ScrapeTuning from './ScrapeTuning'
 import Scraper from './Scraper'
+import SlotMarkers from './SlotMarkers'
 import { titleCase } from '../../format'
 
 /**
@@ -27,6 +28,13 @@ export const SECTIONS = [
     Component: Resume,
     summary: ({ resume }) =>
       `${resume?.filename || 'none loaded'}${resume?.tex?.present ? ' · .tex' : ''}`,
+  },
+  {
+    slug: 'slots',
+    title: 'Slots',
+    description: 'How a composable region is marked in a resume\u2019s source.',
+    Component: SlotMarkers,
+    summary: () => 'LaTeX comments by default',
   },
   {
     slug: 'scraper',

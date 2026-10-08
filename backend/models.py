@@ -822,6 +822,60 @@ class ResumeContact(BaseModel):
     links: list[ContactLink] = Field(default_factory=list)
 
 
+class SlotMarkers(BaseModel):
+    """How a slot is written in the document.
+
+    `open` carries `{name}`, which is where the slot's name goes. The default
+    is a LaTeX comment, so a document using them compiles anywhere with
+    nothing installed.
+    """
+
+    open: str
+    close: str
+
+
+class SlotBlock(BaseModel):
+    """One item inside a slot.
+
+    `kind` is "opaque" for anything the composer's grammar did not recognise.
+    Such a block is written back exactly as it was read, which is what keeps
+    hand-written LaTeX inside a slot safe from the composer.
+    """
+
+    kind: str
+    raw: str
+    heading: Optional[str] = None
+    args: list[str] = Field(default_factory=list)
+    bullets: list[str] = Field(default_factory=list)
+    # The same text as the page reads it. The canvas shows these; the raw
+    # pair above is what is written back.
+    args_text: list[str] = Field(default_factory=list)
+    bullets_text: list[str] = Field(default_factory=list)
+
+
+class SlotWrite(BaseModel):
+    """A region's new contents, in the order they should print."""
+
+    blocks: list[SlotBlock] = Field(default_factory=list)
+
+
+class SlotPlacement(BaseModel):
+    """Which bank record to put into a region, and where in it."""
+
+    entry_id: StrictInt
+    # Absent appends. The canvas sends an index when it dropped the record
+    # between two that were already there.
+    position: Optional[StrictInt] = None
+
+
+class DocumentSlot(BaseModel):
+    """A named region of a resume, and what the composer sees in it."""
+
+    name: str
+    key: str
+    blocks: list[SlotBlock] = Field(default_factory=list)
+
+
 class LibraryResume(BaseModel):
     """One resume in the library, whichever halves of it exist.
 

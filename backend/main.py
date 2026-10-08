@@ -21,6 +21,8 @@ import advisor
 import bank as bank_module
 import contact as contact_module
 import library as library_module
+import compose as compose_module
+import slots as slots_module
 import drafts as drafts_module
 import favicons as favicons_module
 import jobposts
@@ -70,8 +72,12 @@ from models import (
     OpportunityUpdate,
     PlaceEntry,
     ProposalResolve,
+    DocumentSlot,
     LibraryResume,
     ResumeContact,
+    SlotMarkers,
+    SlotPlacement,
+    SlotWrite,
     ResumeDraft,
     ResumeDraftCreate,
     ResumeDraftUpdate,
@@ -1913,6 +1919,78 @@ def extract_job_post_keywords(post_id: int, refresh: bool = False) -> JobPost:
     except ClaudeUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return JobPost(**post)
+
+
+@app.post("/api/drafts/{draft_id}/adopt", response_model=ResumeInstance)
+def adopt_draft_as_document(draft_id: int) -> ResumeInstance:
+    """Convert a draft into the slotted document that replaces it.
+
+    Nothing is deleted. The draft row stays, so a conversion that came out
+    wrong is something the user can walk away from rather than undo.
+    """
+    try:
+        instance_id = compose_module.adopt_draft(draft_id)
+    except drafts_module.DraftNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ResumeInstance(**resumes_module.get_instance(instance_id))
+
+
+@app.put("/api/resumes/{instance_id}/slots/{key}", response_model=list[DocumentSlot])
+def write_resume_slot(instance_id: int, key: str, payload: SlotWrite) -> list[DocumentSlot]:
+    """Replace one region of the document, and nothing else in it."""
+    try:
+        rows = compose_module.set_blocks(instance_id, key, [b.model_dump() for b in payload.blocks])
+    except resumes_module.ResumeNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except compose_module.ComposeError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except slots_module.SlotError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return [DocumentSlot(**row) for row in rows]
+
+
+@app.post("/api/resumes/{instance_id}/slots/{key}/placements", response_model=list[DocumentSlot])
+def place_in_resume_slot(instance_id: int, key: str, payload: SlotPlacement) -> list[DocumentSlot]:
+    """Put a bank record into a region, where the canvas dropped it."""
+    try:
+        rows = compose_module.place_entry(
+            instance_id, key, payload.entry_id, position=payload.position
+        )
+    except (resumes_module.ResumeNotFound, bank_module.BankNotFound) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except compose_module.ComposeError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except slots_module.SlotError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return [DocumentSlot(**row) for row in rows]
+
+
+@app.get("/api/slot-markers", response_model=SlotMarkers)
+def read_slot_markers() -> SlotMarkers:
+    return SlotMarkers(**slots_module.markers())
+
+
+@app.put("/api/slot-markers", response_model=SlotMarkers)
+def write_slot_markers(payload: SlotMarkers) -> SlotMarkers:
+    try:
+        return SlotMarkers(**slots_module.save_markers(payload.model_dump()))
+    except slots_module.SlotError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/resumes/{instance_id}/slots", response_model=list[DocumentSlot])
+def read_resume_slots(instance_id: int) -> list[DocumentSlot]:
+    """What the composer may rearrange in this document, and nothing else."""
+    try:
+        source = resumes_module.get_instance(instance_id)["latex"]
+    except resumes_module.ResumeNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    try:
+        return [DocumentSlot(**slot) for slot in slots_module.read(source)]
+    except slots_module.SlotError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/resume-library", response_model=list[LibraryResume])

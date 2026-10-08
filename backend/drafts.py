@@ -201,15 +201,9 @@ def _snapshot(entry: dict) -> dict[str, Any]:
     write to the draft to explain it.
     """
     return {
+        **bank.printable(entry),
         "ref": _new_ref(),
         "entry_id": entry.get("id"),
-        "kind": entry.get("kind"),
-        "title": entry.get("title") or "",
-        "organization": entry.get("organization"),
-        "location": entry.get("location"),
-        "dates": bank.format_dates(entry),
-        "detail": entry.get("detail"),
-        "url": entry.get("url"),
         "bullets": [_snapshot_bullet(bullet) for bullet in entry.get("bullets") or []],
     }
 
@@ -340,6 +334,15 @@ def _rename_instance_if_free(instance_id: int, name: str) -> None:
         resumes.update_instance(instance_id, {"name": name})
     except ValueError:
         pass
+
+
+def attach_instance(draft_id: int, instance_id: int) -> None:
+    """Point a draft at the document it became."""
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE resume_drafts SET resume_instance_id = ?, updated_at = ? WHERE id = ?",
+            (instance_id, _now(), draft_id),
+        )
 
 
 def detach_draft(draft_id: int) -> dict[str, Any]:
