@@ -318,7 +318,14 @@ def update_draft(draft_id: int, values: dict[str, Any]) -> dict[str, Any]:
             f"UPDATE resume_drafts SET {assignments}, updated_at = ? WHERE id = ?",
             [*changes.values(), _now(), draft_id],
         )
-    return get_draft(draft_id)
+    updated = get_draft(draft_id)
+    # While a draft and a resume are linked they are one thing, so one name.
+    # Renaming only this half left the resume it became under whatever it was
+    # called at the moment it was first pushed.
+    instance_id = updated.get("resume_instance_id")
+    if "name" in changes and instance_id is not None:
+        resumes.update_instance(instance_id, {"name": changes["name"]})
+    return updated
 
 
 def delete_draft(draft_id: int) -> None:
@@ -804,7 +811,7 @@ def push_draft(draft_id: int, *, force: bool = False) -> dict[str, Any]:
         raise PushConflict(draft_id, instance_id, latex, current,
                            draft.get("pushed_latex") or "")
 
-    resumes.update_instance(instance_id, {"latex": latex})
+    resumes.update_instance(instance_id, {"latex": latex, "name": draft["name"]})
     with get_db() as conn:
         conn.execute(
             """UPDATE resume_drafts

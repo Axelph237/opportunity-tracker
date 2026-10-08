@@ -141,7 +141,10 @@ def list_instances() -> list[dict[str, Any]]:
         rows = conn.execute(
             """SELECT r.*, (
                    SELECT COUNT(*) FROM opportunities o WHERE o.resume_instance_id = r.id
-               ) AS linked_count
+               ) AS linked_count, (
+                   SELECT d.id FROM resume_drafts d
+                   WHERE d.resume_instance_id = r.id ORDER BY d.id LIMIT 1
+               ) AS draft_id
                FROM resume_instances r
                ORDER BY r.is_default DESC, r.updated_at DESC, r.id DESC"""
         ).fetchall()
@@ -153,7 +156,10 @@ def get_instance(instance_id: int) -> dict[str, Any]:
         row = conn.execute(
             """SELECT r.*, (
                    SELECT COUNT(*) FROM opportunities o WHERE o.resume_instance_id = r.id
-               ) AS linked_count
+               ) AS linked_count, (
+                   SELECT d.id FROM resume_drafts d
+                   WHERE d.resume_instance_id = r.id ORDER BY d.id LIMIT 1
+               ) AS draft_id
                FROM resume_instances r WHERE r.id = ?""",
             (instance_id,),
         ).fetchone()

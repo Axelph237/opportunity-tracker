@@ -96,7 +96,7 @@ const PDFLATEX_ISSUE = {
  * finished — which is exactly the `act(...)` warning. Awaiting the first
  * rendered content here keeps every test below free of that.
  */
-async function setup({ list, instance, links = [], assets = [], engine = ENGINE } = {}) {
+async function setup({ list, instance, links = [], assets = [], engine = ENGINE, route = '/resumes' } = {}) {
   const rows = list ?? [summary()]
   api.resumes.mockResolvedValue(rows)
   api.latexStatus.mockResolvedValue(engine)
@@ -104,7 +104,7 @@ async function setup({ list, instance, links = [], assets = [], engine = ENGINE 
   api.resumeLinks.mockResolvedValue(links)
   api.resumeAssets.mockResolvedValue(assets)
   const rendered = render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[route]}>
       <ConfirmProvider>
         <Resumes onMutate={() => {}} />
       </ConfirmProvider>
@@ -423,5 +423,37 @@ describe('Resumes / templates written for pdflatex', () => {
     // And it must not trigger the autosave path all over again.
     await new Promise((resolve) => setTimeout(resolve, 1200))
     expect(api.updateResumeInstance).not.toHaveBeenCalled()
+  })
+})
+
+describe('Resumes / the way back to the Builder', () => {
+  it('offers the canvas behind a resume that was composed', async () => {
+    await setup({ instance: detail({ draft_id: 5 }) })
+
+    const link = await screen.findByRole('link', { name: /open in builder/i })
+    expect(link).toHaveAttribute('href', '/builder?draft=5')
+  })
+
+  it('offers nothing for a resume that was typed by hand', async () => {
+    await setup({ instance: detail({ draft_id: null }) })
+
+    expect(screen.queryByRole('link', { name: /open in builder/i })).not.toBeInTheDocument()
+  })
+
+  it('opens the resume named in the url rather than the scored one', async () => {
+    const scored = summary({ id: 1, name: 'Base', is_default: true })
+    const pushed = summary({ id: 2, name: 'Composed', is_default: false })
+
+    await setup({ list: [scored, pushed], route: '/resumes?instance=2' })
+
+    await waitFor(() => expect(api.resumeInstance).toHaveBeenCalledWith(2))
+  })
+
+  it('falls back to the scored one when the url names a resume that is gone', async () => {
+    const scored = summary({ id: 1, name: 'Base', is_default: true })
+
+    await setup({ list: [scored], route: '/resumes?instance=9090' })
+
+    await waitFor(() => expect(api.resumeInstance).toHaveBeenCalledWith(1))
   })
 })

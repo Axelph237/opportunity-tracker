@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import BankEntryForm from '../components/BankEntryForm'
 import BankRail from '../components/BankRail'
 import ContactForm from '../components/ContactForm'
@@ -132,7 +133,10 @@ export default function Builder() {
   const [importPreview, setImportPreview] = useState(null)
   const [contact, setContact] = useState(null)
   const [editingContact, setEditingContact] = useState(false)
+  const [params] = useSearchParams()
   const [renaming, setRenaming] = useState(false)
+  const [rendering, setRendering] = useState(false)
+  const [rendered, setRendered] = useState(null)
   // Escape unmounts the field, and the blur it fires must not commit.
   const cancelRename = useRef(false)
   const [editingAd, setEditingAd] = useState(false)
@@ -201,7 +205,10 @@ export default function Builder() {
         setDrafts(draftRows)
         setBank(bankRows)
         setContact(contactRow)
-        setDraftId(draftRows[0]?.id ?? null)
+        // Arriving from a resume picks that resume's draft, not the newest.
+        const asked = Number(params.get('draft'))
+        const wanted = draftRows.some((row) => row.id === asked) ? asked : null
+        setDraftId(wanted ?? draftRows[0]?.id ?? null)
       } catch (err) {
         if (!cancelled) setError(err.message)
       } finally {
@@ -412,6 +419,28 @@ export default function Builder() {
       resume_instance_id: result?.resume_instance_id ?? current.resume_instance_id,
     }))
 
+  /** Push, compile, and show the page, without leaving for the Resumes tab. */
+  const pushAndRender = async () => {
+    setRendering(true)
+    try {
+      const result = await api.pushDraft(draft.id)
+      remember(result)
+      const compiled = await api.compileResumeInstance(result.resume_instance_id)
+      setRendered(
+        compiled.has_pdf
+          ? { url: api.resumePdfUrl(compiled.id, { version: compiled.compiled_at || '' }) }
+          : { error: compiled.compile_errors?.[0]?.message || 'That did not compile.' },
+      )
+      setError(null)
+    } catch (err) {
+      // A 409 means a hand-edit is in the way, which the Push button already
+      // explains and offers to resolve. Saying it twice, differently, would not.
+      setRendered({ error: err.status === 409 ? 'Push it first: that resume was edited by hand.' : err.message })
+    } finally {
+      setRendering(false)
+    }
+  }
+
   const push = () =>
     act(async () => {
       let edited = null
@@ -511,6 +540,7 @@ export default function Builder() {
           Push to resume
         </button>
       ) : null}
+
     </>
   )
 
@@ -614,6 +644,16 @@ export default function Builder() {
                 onExtract={extractKeywords}
                 onLocate={setFocusedPlacement}
                 onTailor={tailor}
+                preview={
+                  draft
+                    ? {
+                        ...rendered,
+                        rendering,
+                        onRender: pushAndRender,
+                        instanceId: draft.resume_instance_id,
+                      }
+                    : null
+                }
               />
             </aside>
           </>

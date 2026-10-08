@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import LatexEditor from '../components/LatexEditor'
 import LatexIssues from '../components/LatexIssues'
 import PageLayout from '../components/PageLayout'
@@ -12,6 +12,7 @@ import {
   CheckIcon,
   DownloadIcon,
   DuplicateIcon,
+  NavIcon,
   PlusIcon,
   SidebarIcon,
   StarIcon,
@@ -85,6 +86,7 @@ function InstanceList({ instances, selectedId, onSelect, onCreate, busy }) {
 
 export default function Resumes({ onMutate }) {
   const [instances, setInstances] = useState([])
+  const [params] = useSearchParams()
   const [selectedId, setSelectedId] = useState(null)
   const [instance, setInstance] = useState(null)
   const [source, setSource] = useState('')
@@ -141,7 +143,11 @@ export default function Resumes({ onMutate }) {
         if (cancelled) return
         setInstances(rows)
         setEngine(engineStatus)
-        setSelectedId(rows.find((row) => row.is_default)?.id ?? rows[0]?.id ?? null)
+        // Arriving from the Builder opens the resume it just pushed, rather
+        // than the scored one.
+        const asked = Number(params.get('instance'))
+        const wanted = rows.some((row) => row.id === asked) ? asked : null
+        setSelectedId(wanted ?? rows.find((row) => row.is_default)?.id ?? rows[0]?.id ?? null)
       } catch (err) {
         if (!cancelled) setError(err.message)
       } finally {
@@ -485,6 +491,16 @@ export default function Resumes({ onMutate }) {
                     Use for scoring
                   </button>
                 )}
+                {instance.draft_id ? (
+                  <Link
+                    to={`/builder?draft=${instance.draft_id}`}
+                    className="btn"
+                    title="This was composed in the Builder. Open the records behind it."
+                  >
+                    <NavIcon name="builder" className="h-4 w-4" />
+                    Open in Builder
+                  </Link>
+                ) : null}
                 <button
                   type="button"
                   className="btn"

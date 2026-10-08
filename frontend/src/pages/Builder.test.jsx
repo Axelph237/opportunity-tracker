@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import Builder from './Builder'
 import { ConfirmProvider } from '../components/ConfirmDialog'
 import { api } from '../api'
@@ -31,6 +32,7 @@ vi.mock('../api', async (importOriginal) => {
       deleteBankBullet: vi.fn(),
       importBank: vi.fn(),
       resumeContact: vi.fn(),
+      compileResumeInstance: vi.fn(),
       saveResumeContact: vi.fn(),
       jobPost: vi.fn(),
       createJobPost: vi.fn(),
@@ -104,7 +106,7 @@ const CONTACT = { name: '', location: '', email: '', phone: '', links: [] }
 
 async function setup({
   drafts = [DRAFT], draft = DRAFT, bank = BANK, jobPost = JOB_POST, coverage, proposals = [],
-  contact = CONTACT,
+  contact = CONTACT, route = '/builder',
 } = {}) {
   api.resumeContact.mockResolvedValue(contact)
   api.drafts.mockResolvedValue(drafts)
@@ -116,9 +118,11 @@ async function setup({
   api.updateDraft.mockImplementation(async (id, patch) => ({ ...draft, ...patch }))
 
   render(
-    <ConfirmProvider>
-      <Builder />
-    </ConfirmProvider>,
+    <MemoryRouter initialEntries={[route]}>
+      <ConfirmProvider>
+        <Builder />
+      </ConfirmProvider>
+    </MemoryRouter>,
   )
   if (drafts.length) await screen.findByRole('textbox', { name: /rename the experience section/i })
   else await screen.findByRole('button', { name: /start a resume/i })
@@ -686,5 +690,89 @@ describe('Builder / the contact details', () => {
     expect(api.saveResumeContact.mock.calls[0][0].links).toEqual([
       { label: 'github.com/me', url: 'https://github.com/me' },
     ])
+  })
+})
+
+describe('Builder / the way through to Resumes', () => {
+  const PUSHED = { ...DRAFT, resume_instance_id: 12 }
+
+  it('offers the resume a pushed draft became, beside the page it rendered', async () => {
+    // In the preview pane rather than the toolbar: it is what you want next
+    // after looking at the page, and the toolbar had five controls already.
+    const user = userEvent.setup()
+    await setup({ draft: PUSHED })
+
+    await user.click(screen.getByRole('tab', { name: /preview/i }))
+
+    expect(screen.getByRole('link', { name: /open in resumes/i })).toHaveAttribute(
+      'href',
+      '/resumes?instance=12',
+    )
+  })
+
+  it('offers nothing to open before the draft has been pushed', async () => {
+    const user = userEvent.setup()
+    await setup()
+
+    await user.click(screen.getByRole('tab', { name: /preview/i }))
+
+    expect(screen.queryByRole('link', { name: /open in resumes/i })).not.toBeInTheDocument()
+  })
+
+  it('opens the draft named in the url rather than the newest one', async () => {
+    const second = { ...DRAFT, id: 77, name: 'Second resume' }
+    api.draft.mockResolvedValue(second)
+    await setup({ drafts: [DRAFT, second], draft: second, route: '/builder?draft=77' })
+
+    await waitFor(() => expect(api.draft).toHaveBeenCalledWith(77))
+  })
+
+  it('falls back to the newest when the url names a draft that is gone', async () => {
+    await setup({ route: '/builder?draft=4040' })
+
+    await waitFor(() => expect(api.draft).toHaveBeenCalledWith(DRAFT.id))
+  })
+})
+
+describe('Builder / seeing the page without leaving', () => {
+  it('pushes, compiles and shows the pdf from the right rail', async () => {
+    const user = userEvent.setup()
+    api.pushDraft.mockResolvedValue({ ...DRAFT, resume_instance_id: 12, pushed: true })
+    api.compileResumeInstance.mockResolvedValue({
+      id: 12, has_pdf: true, compiled_at: '2026-10-08T10:00:00', compile_errors: [],
+    })
+    await setup()
+
+    await user.click(screen.getByRole('tab', { name: /preview/i }))
+    await user.click(screen.getByRole('button', { name: /push and render/i }))
+
+    await waitFor(() => expect(api.compileResumeInstance).toHaveBeenCalledWith(12))
+  })
+
+  it('says what went wrong rather than showing a blank frame', async () => {
+    const user = userEvent.setup()
+    api.pushDraft.mockResolvedValue({ ...DRAFT, resume_instance_id: 12, pushed: true })
+    api.compileResumeInstance.mockResolvedValue({
+      id: 12, has_pdf: false, compile_errors: [{ line: 4, message: 'Undefined control sequence' }],
+    })
+    await setup()
+
+    await user.click(screen.getByRole('tab', { name: /preview/i }))
+    await user.click(screen.getByRole('button', { name: /push and render/i }))
+
+    expect(await screen.findByText(/undefined control sequence/i)).toBeInTheDocument()
+  })
+
+  it('sends someone whose resume was hand-edited back to the push button', async () => {
+    const user = userEvent.setup()
+    const conflict = Object.assign(new Error('conflict'), { status: 409 })
+    api.pushDraft.mockRejectedValue(conflict)
+    await setup()
+
+    await user.click(screen.getByRole('tab', { name: /preview/i }))
+    await user.click(screen.getByRole('button', { name: /push and render/i }))
+
+    expect(await screen.findByText(/edited by hand/i)).toBeInTheDocument()
+    expect(api.compileResumeInstance).not.toHaveBeenCalled()
   })
 })

@@ -467,6 +467,10 @@ class ResumeInstanceSummary(BaseModel):
     compile_errors: list[CompileError] = Field(default_factory=list)
     is_default: bool = False
     linked_count: int = 0
+    # The draft this was composed from, if it was composed at all. Derived by
+    # looking back along `resume_drafts.resume_instance_id` rather than stored,
+    # so there is one place that owns the link and it cannot fall out of step.
+    draft_id: Optional[int] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 

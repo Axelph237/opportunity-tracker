@@ -1157,3 +1157,37 @@ def test_a_segment_carries_the_entrys_own_words_and_its_bullets():
     ]}]}
 
     assert drafts.draft_segments(body) == [("p", "Lab assistant Argonne Ran the rig")]
+
+
+# ------------------------------------------------ the bridge back to Resumes
+
+def test_a_resume_says_which_draft_composed_it(app_client):
+    """Resumes could not tell a composed version from a typed one, so it had
+    no way to offer a way back to the canvas that produced it."""
+    typed = app_client.post("/api/resumes", json={"name": "Typed by hand"}).json()
+    draft = make_draft(app_client, name="Composed")
+    app_client.post(f"/api/drafts/{draft['id']}/push")
+
+    rows = {row["name"]: row for row in app_client.get("/api/resumes").json()}
+
+    assert rows["Typed by hand"]["draft_id"] is None
+    assert rows["Composed"]["draft_id"] == draft["id"]
+
+
+def test_renaming_a_pushed_draft_renames_the_resume_it_became(app_client):
+    """While they are linked they are one thing. The resume used to keep
+    whatever the draft was called at the moment it was first pushed."""
+    draft = make_draft(app_client, name="New resume")
+    instance_id = app_client.post(f"/api/drafts/{draft['id']}/push").json()["resume_instance_id"]
+
+    app_client.patch(f"/api/drafts/{draft['id']}", json={"name": "Backend Intern, Fermilab"})
+
+    assert app_client.get(f"/api/resumes/{instance_id}").json()["name"] == "Backend Intern, Fermilab"
+
+
+def test_renaming_a_draft_that_was_never_pushed_touches_no_resume(app_client):
+    draft = make_draft(app_client, name="Never pushed")
+
+    app_client.patch(f"/api/drafts/{draft['id']}", json={"name": "Still not pushed"})
+
+    assert app_client.get("/api/resumes").json() == []
