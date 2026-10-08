@@ -382,12 +382,13 @@ def _op_rewrite_bullet(body: dict, op: dict, index: dict) -> None:
     if not text:
         raise ValueError("A rewritten bullet needs some text.")
     bullet["text"] = text
-    # Re-anchor to whatever the bank says now. The user has just reviewed this
-    # line against the current record, so what counted as drift a moment ago
-    # does not count as drift after they accepted it.
     source = index["bullets"].get(bullet.get("source_bullet_id"))
-    if source is not None:
-        bullet["source_text"] = source["text"]
+    # Only a rewrite that lands on the bank's own current wording answers the
+    # drift, which is what accepting a sync offer does. A tailoring pass
+    # writes something else and has never shown the user what the bank now
+    # says, so re-anchoring there would withdraw a decision they were owed.
+    if source is not None and source["text"] == text:
+        bullet["source_text"] = text
 
 
 OPERATIONS: dict[str, Callable[[dict, dict, dict], None]] = {

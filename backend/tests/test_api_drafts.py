@@ -620,6 +620,26 @@ def test_a_rewritten_bullet_stays_anchored_to_the_record_it_came_from(app_client
     assert bullet["source_bullet_id"] == entry["bullets"][0]["id"]
 
 
+def test_a_tailored_rewrite_leaves_unreviewed_drift_standing(app_client):
+    """A tailoring pass rewrites for the job it is aimed at. It has not shown
+    the user what the bank now says, so re-anchoring to it would withdraw a
+    decision they were owed and never saw."""
+    draft, entry, placement = placed(app_client, bullets=("Assisted with the rig",))
+    bullet_id = entry["bullets"][0]["id"]
+    app_client.patch(f"/api/bank/bullets/{bullet_id}", json={"text": "Rebuilt the rig"})
+    proposal_id = make_proposal(draft["id"], [
+        {"op": "RewriteBullet", "placement_id": placement["ref"],
+         "bullet_ref": placement["bullets"][0]["ref"], "bullet_id": bullet_id,
+         "text": "Rebuilt the beamline rig for the ACME run"},
+    ])
+
+    resolve(app_client, proposal_id)
+
+    standing = drafts.sync_proposal(draft["id"])
+    assert standing is not None, "the drift the user never saw went away on its own"
+    assert [op["text"] for op in standing["operations"]] == ["Rebuilt the rig"]
+
+
 # ------------------------------------------------------------------ rendering
 
 def test_the_latex_preview_never_writes_anything(app_client):
