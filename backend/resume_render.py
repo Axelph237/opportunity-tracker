@@ -41,7 +41,7 @@ _ESCAPE_TABLE = str.maketrans(
 )
 
 # A URL is an argument hyperref reads mostly verbatim, so it needs far less
-# than prose does — and escaping `_` or `~` there would corrupt the address.
+# than prose does. Escaping `_` or `~` there would corrupt the address.
 _URL_TABLE = str.maketrans(
     {
         "\\": r"\%5C",
@@ -124,7 +124,7 @@ def _body_bullets(placement: dict, layout: KindLayout) -> str:
 
 
 def _body_inline(placement: dict, _layout: KindLayout) -> str:
-    """One labelled, comma-joined row — how a skills block reads on a resume.
+    """One labelled, comma-joined row, how a skills block reads on a resume.
 
     The `\\item` is not decoration: the enclosing list is an `itemize`, and
     text placed in one before any `\\item` is a TeX error.
