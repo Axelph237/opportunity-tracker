@@ -449,6 +449,46 @@ def list_proposals(draft_id: int) -> list[dict[str, Any]]:
     return [proposal_dict(row) for row in rows]
 
 
+# The user's decision and the author's reasoning are not part of what makes
+# two operations the same operation.
+_DECISION_FIELDS = ("accepted", "rationale")
+
+
+def _identity(op: dict) -> tuple:
+    """What has to match for a submitted operation to be one that was offered.
+
+    A missing field and a field set to None mean the same thing throughout the
+    algebra, so an absent value is left out rather than compared.
+    """
+    return tuple(sorted(
+        (field, value) for field, value in op.items()
+        if field not in _DECISION_FIELDS and value is not None
+    ))
+
+
+def _reviewed(stored: list[dict], submitted: Optional[list[dict]]) -> list[dict]:
+    """The operations that were offered, carrying the user's decision on each.
+
+    The proposal row is the record of what was offered. Storing the client's
+    list in its place let a resolve introduce operations nobody proposed and
+    rewrite the evidence of the offer in the same write, which makes the audit
+    trail a record of what was applied rather than of what was proposed.
+
+    An operation the client leaves out of its list is one the user did not
+    accept.
+    """
+    if submitted is None:
+        return [dict(op, accepted=op.get("accepted", True)) for op in stored]
+    known = {_identity(op) for op in stored}
+    decided = {}
+    for op in submitted:
+        identity = _identity(op)
+        if identity not in known:
+            raise ValueError(f"A {op.get('op')} operation was not part of this proposal.")
+        decided[identity] = bool(op.get("accepted", True))
+    return [dict(op, accepted=decided.get(_identity(op), False)) for op in stored]
+
+
 def apply_proposal(proposal_id: int, operations: Optional[list[dict]] = None) -> dict[str, Any]:
     """Apply the accepted operations of a proposal to its draft.
 
@@ -461,8 +501,8 @@ def apply_proposal(proposal_id: int, operations: Optional[list[dict]] = None) ->
     if proposal["status"] != "pending":
         return draft
 
-    reviewed = proposal["operations"] if operations is None else operations
-    accepted = [op for op in reviewed if op.get("accepted", True)]
+    reviewed = _reviewed(proposal["operations"], operations)
+    accepted = [op for op in reviewed if op["accepted"]]
 
     with get_db() as conn:
         index = _bank_index(conn)

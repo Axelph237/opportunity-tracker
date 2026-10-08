@@ -362,6 +362,61 @@ def test_the_accept_states_the_user_sent_beat_the_ones_the_proposal_was_stored_w
     assert [b["text"] for b in only_placement(app_client, draft["id"])["bullets"]] == ["One", "Two"]
 
 
+def test_an_operation_nobody_proposed_cannot_be_smuggled_into_a_resolve(app_client):
+    """A resolve records a decision on what was offered. Taking the client's
+    list wholesale made every proposal an open write channel into the draft."""
+    draft, _entry, placement = placed(app_client)
+    proposal_id = make_proposal(draft["id"], [
+        {"op": "DropBullet", "placement_id": placement["ref"],
+         "bullet_ref": placement["bullets"][0]["ref"]},
+    ])
+
+    response = resolve(app_client, proposal_id, operations=[
+        {"op": "DropBullet", "placement_id": placement["ref"],
+         "bullet_ref": placement["bullets"][1]["ref"]},
+    ])
+
+    assert response.status_code == 400, response.text
+    assert [b["text"] for b in only_placement(app_client, draft["id"])["bullets"]] == ["One", "Two"]
+
+
+def test_a_resolve_records_the_decision_without_rewriting_the_offer(app_client):
+    """The stored proposal is the evidence of what the tailoring pass asked
+    for. A resolve may say yes or no to each line and nothing else."""
+    draft, _entry, placement = placed(app_client)
+    proposal_id = make_proposal(draft["id"], [
+        {"op": "DropBullet", "placement_id": placement["ref"],
+         "bullet_ref": placement["bullets"][0]["ref"],
+         "rationale": "The ad never mentions rigs"},
+    ])
+
+    resolve(app_client, proposal_id, operations=[
+        {"op": "DropBullet", "accepted": False, "placement_id": placement["ref"],
+         "bullet_ref": placement["bullets"][0]["ref"], "rationale": "I made this up"},
+    ])
+
+    stored = drafts.get_proposal(proposal_id)["operations"]
+    assert [op["rationale"] for op in stored] == ["The ad never mentions rigs"]
+    assert [op["accepted"] for op in stored] == [False]
+
+
+def test_an_operation_left_out_of_the_reviewed_set_is_not_applied(app_client):
+    draft, _entry, placement = placed(app_client)
+    proposal_id = make_proposal(draft["id"], [
+        {"op": "DropBullet", "placement_id": placement["ref"],
+         "bullet_ref": placement["bullets"][0]["ref"]},
+        {"op": "DropBullet", "placement_id": placement["ref"],
+         "bullet_ref": placement["bullets"][1]["ref"]},
+    ])
+
+    resolve(app_client, proposal_id, operations=[
+        {"op": "DropBullet", "placement_id": placement["ref"],
+         "bullet_ref": placement["bullets"][0]["ref"]},
+    ])
+
+    assert [b["text"] for b in only_placement(app_client, draft["id"])["bullets"]] == ["Two"]
+
+
 def test_applying_the_same_proposal_twice_changes_nothing_the_second_time(app_client):
     """A retry, a double click or a replayed request must not drop two bullets."""
     draft, _entry, placement = placed(app_client, bullets=("One", "Two", "Three"))
