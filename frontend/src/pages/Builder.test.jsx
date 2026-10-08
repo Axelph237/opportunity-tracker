@@ -371,6 +371,15 @@ describe('Builder / tailoring', () => {
 })
 
 describe('Builder / pushing to a resume', () => {
+  // A refused push is a 409. The api layer turns that into a throw carrying
+  // the status and the detail, pinned by src/api.test.js, so a resolved
+  // `{diverged: true}` is an answer the server never sends.
+  const refused = () =>
+    Object.assign(new Error('edited by hand'), {
+      status: 409,
+      detail: { diverged: true, current_latex: '% by hand' },
+    })
+
   it('writes the draft out when nothing has diverged', async () => {
     const user = userEvent.setup()
     api.pushDraft.mockResolvedValue({ diverged: false, pushed_at: '2026-10-07T12:00:00Z' })
@@ -385,7 +394,7 @@ describe('Builder / pushing to a resume', () => {
     // The LaTeX editor stays the escape hatch, so a push must never silently
     // replace work done there.
     const user = userEvent.setup()
-    api.pushDraft.mockResolvedValue({ diverged: true })
+    api.pushDraft.mockRejectedValueOnce(refused()).mockResolvedValue({ diverged: false })
     await setup()
 
     await user.click(screen.getByRole('button', { name: /push to resume/i }))
@@ -396,9 +405,22 @@ describe('Builder / pushing to a resume', () => {
     await waitFor(() => expect(api.pushDraft).toHaveBeenCalledWith(9, true))
   })
 
+  it('reports a push that failed for any other reason', async () => {
+    const user = userEvent.setup()
+    api.pushDraft.mockRejectedValue(
+      Object.assign(new Error('The resume template has no %%RESUME-BODY%% marker'), { status: 400 }),
+    )
+    await setup()
+
+    await user.click(screen.getByRole('button', { name: /push to resume/i }))
+
+    expect(await screen.findByText(/no %%RESUME-BODY%% marker/)).toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  })
+
   it('leaves the resume alone when the overwrite is refused', async () => {
     const user = userEvent.setup()
-    api.pushDraft.mockResolvedValue({ diverged: true })
+    api.pushDraft.mockRejectedValue(refused())
     await setup()
 
     await user.click(screen.getByRole('button', { name: /push to resume/i }))

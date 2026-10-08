@@ -353,12 +353,21 @@ export default function Builder() {
     })
   }
 
+  const remember = (result) =>
+    setDraft((current) => ({
+      ...current,
+      pushed_at: result?.pushed_at ?? current.pushed_at,
+      resume_instance_id: result?.resume_instance_id ?? current.resume_instance_id,
+    }))
+
   const push = () =>
     act(async () => {
-      const result = await api.pushDraft(draft.id)
-      if (!result?.diverged) {
-        setDraft((current) => ({ ...current, pushed_at: result?.pushed_at ?? current.pushed_at }))
+      try {
+        remember(await api.pushDraft(draft.id))
         return
+      } catch (err) {
+        // A refused push is a 409 carrying both texts, not a 200 saying no.
+        if (err.status !== 409) throw err
       }
       // The LaTeX editor is still the escape hatch, so a hand-edit there must
       // not be overwritten without being shown first.
@@ -367,7 +376,7 @@ export default function Builder() {
         body: 'The LaTeX has changed since this draft last wrote it. Pushing again replaces the whole document with what is on the canvas.',
         confirmLabel: 'Replace it',
       })
-      if (confirmed) await api.pushDraft(draft.id, true)
+      if (confirmed) remember(await api.pushDraft(draft.id, true))
     })
 
   const terms = coverage.map((item) => item.term)

@@ -21,16 +21,23 @@ async function send(path, options = {}) {
   }
 
   if (!response.ok) {
-    let detail = `${response.status} ${response.statusText}`
+    let message = `${response.status} ${response.statusText}`
+    let detail = null
     try {
       const body = await response.json()
-      if (body?.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail)
+      if (body?.detail) {
+        detail = body.detail
+        message = typeof detail === 'string' ? detail : JSON.stringify(detail)
+      }
     } catch {
       /* response had no JSON body */
     }
     // 502/503/504 from the dev proxy mean the API never answered at all.
-    if (response.status >= 502 && response.status <= 504) throw new ApiOfflineError(detail)
-    throw new Error(detail)
+    if (response.status >= 502 && response.status <= 504) throw new ApiOfflineError(message)
+    // The status and the parsed detail ride along because some answers are
+    // not failures to report: a 409 from a push carries the diff the user has
+    // to be shown before anything overwrites it.
+    throw Object.assign(new Error(message), { status: response.status, detail })
   }
 
   return response
