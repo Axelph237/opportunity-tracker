@@ -54,7 +54,12 @@ def every_kind_body() -> dict:
                     }
                 ],
             }
-            for index, (kind, layout) in enumerate(bank.ENTRY_KINDS.items())
+            # The retired kind is the `FALLBACK_LAYOUT` path: a draft
+            # snapshots the kind it was composed with, so a kind dropped from
+            # the registry still has to render through macros that exist.
+            for index, (kind, layout) in enumerate(
+                [*bank.ENTRY_KINDS.items(), ("retired-in-2031", bank.FALLBACK_LAYOUT)]
+            )
         ]
     }
 
