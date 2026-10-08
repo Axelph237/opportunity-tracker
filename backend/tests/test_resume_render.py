@@ -98,7 +98,7 @@ def test_a_url_escapes_the_characters_tex_would_act_on():
 
 
 def test_a_url_percent_encodes_the_characters_tex_cannot_hand_through():
-    """`\{` reaches hyperref as a backslash and a brace, so the link it makes
+    r"""`\{` reaches hyperref as a backslash and a brace, so the link it makes
     is an address that does not exist. The percent form survives, the way the
     backslash already does."""
     rendered = render(placement(kind="project", title="Oracle", url=r"https://ex.com/{a}\b"))
