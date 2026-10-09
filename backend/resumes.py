@@ -176,13 +176,23 @@ def default_instance() -> Optional[dict[str, Any]]:
     return instance_dict(row) if row else None
 
 
-def starting_source(copy_from: Optional[int] = None) -> str:
+def starting_source(copy_from: Optional[int] = None, *, blank: bool = False) -> str:
     """What a new instance opens with.
 
-    An explicit copy wins, then the uploaded `resume.tex`, then the default
-    instance, and only then the starter template — so a user who has already
-    given the app their real resume never starts from a stranger's.
+    A blank one wins, then an explicit copy, then the uploaded `resume.tex`,
+    then the default instance, and only then the starter template, so a user
+    who has already given the app their real resume never starts from a
+    stranger\u2019s.
+
+    "Blank" is its own answer rather than the absence of the others because
+    `resume.tex` has no slots in it. Starting a new resume from it hands back
+    a document the composer cannot touch, which is not what someone asking
+    for an empty one wants.
     """
+    if blank:
+        import compose
+
+        return compose.blank_source()
     if copy_from is not None:
         return get_instance(copy_from)["latex"]
     uploaded = resume_tex()
@@ -213,8 +223,11 @@ def create_instance(
     description: Optional[str] = None,
     latex_source: Optional[str] = None,
     copy_from: Optional[int] = None,
+    blank: bool = False,
 ) -> dict[str, Any]:
-    source = latex_source if latex_source is not None else starting_source(copy_from)
+    source = (
+        latex_source if latex_source is not None else starting_source(copy_from, blank=blank)
+    )
     clean = (name or "").strip()[:MAX_NAME_LENGTH] or "Untitled resume"
     # Read outside the transaction below: resume_status() opens its own
     # connection, and nesting one inside an open write is how deadlocks start.

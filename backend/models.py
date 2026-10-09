@@ -492,6 +492,10 @@ class ResumeInstanceCreate(BaseModel):
     latex: Optional[str] = None
     # Start from an existing variant rather than the template or resume.tex.
     copy_from: Optional[int] = None
+    # Start from an empty slotted skeleton instead. Your own resume.tex has
+    # no slots in it, so a resume started from it cannot be composed at all
+    # until you mark some regions by hand.
+    blank: bool = False
 
     @field_validator("name")
     @classmethod
@@ -867,6 +871,9 @@ class SlotBlock(BaseModel):
     # pair above is what is written back.
     args_text: list[str] = Field(default_factory=list)
     bullets_text: list[str] = Field(default_factory=list)
+    # Which side of the entry list this sat on. Carried across the wire or a
+    # line written outside the list comes back inside it.
+    in_list: bool = True
 
 
 class SlotOp(BaseModel):

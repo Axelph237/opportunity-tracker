@@ -61,6 +61,7 @@ def set_blocks(instance_id: int, key: str, blocks: list[dict[str, Any]]) -> list
             heading=block.get("heading"),
             args=[str(arg) for arg in block.get("args") or []],
             bullets=[str(text) for text in block.get("bullets") or []],
+            in_list=bool(block.get("in_list", True)),
         )
         for block in blocks
     ]
@@ -88,6 +89,39 @@ def place_entry(
     at = len(blocks) if position is None else max(0, min(int(position), len(blocks)))
     blocks[at:at] = placed
     return _save(instance_id, slots.write(source, {slot.key: slots.render(blocks)}))
+
+
+# ------------------------------------------------- starting from nothing
+
+# What a blank resume opens with: named, empty, in the order a screener reads
+# for them. Rename or delete any of them in the source afterwards; the
+# composer follows whatever the document says.
+BLANK_SECTIONS = ("Experience", "Education", "Projects", "Skills")
+
+
+def blank_source() -> str:
+    """A resume with nothing in it that is still composable.
+
+    Starting a new resume from the user's own `resume.tex` hands them a
+    document with no slots, which the composer cannot touch at all. This is
+    the same preamble with empty regions cut into it.
+
+    The slot holds the list as well as the entries, so an empty one is an
+    empty region rather than an empty `itemize`, which does not compile.
+    """
+    import contact as contact_module
+    from database import RESUME_TEMPLATE
+
+    shape = slots.markers()
+    body = "\n\n".join(
+        "\n".join([
+            rf"\section{{{label}}}",
+            shape["open"].format(name=label.lower()),
+            shape["close"],
+        ])
+        for label in BLANK_SECTIONS
+    )
+    return resume_render.fill(RESUME_TEMPLATE, body, contact_module.get_contact())
 
 
 # ------------------------------------------------- bringing drafts across

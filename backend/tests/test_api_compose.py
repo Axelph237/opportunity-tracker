@@ -17,10 +17,12 @@ DOC = r"""\documentclass{article}
 \begin{document}
 \section{Experience}
 % <<slot experience>>
+\resumeSubHeadingListStart
 \resumeSubheading{Fermilab}{2026}{Intern}{Batavia, IL}
 \resumeItemListStart
   \resumeItem{Calibrated the readout}
 \resumeItemListEnd
+\resumeSubHeadingListEnd
 \hrule
 % <</slot>>
 Hand written prose nothing may touch.
@@ -180,18 +182,16 @@ WRAPPED = r"""\documentclass[letterpaper,11pt]{article}
 \newcommand{\resumeItem}[1]{\item\small{#1}}
 \newcommand{\resumeSubheading}[4]{\item \textbf{#1} \hfill #2 \\ \textit{\small #3}}
 \begin{document}
-\resumeSubHeadingListStart
 % <<slot experience>>
 % <</slot>>
-\resumeSubHeadingListEnd
 \end{document}
 """
 
 
-def test_a_slot_inside_its_list_environment_composes_and_compiles(app_client, monkeypatch):
-    """The list belongs to the document, outside the markers. An entry prints
-    an `\\item`, so a slot of entries that is not inside a list compiles to
-    "Lonely \\item" and no page at all."""
+def test_an_empty_region_and_a_filled_one_both_compile(app_client, monkeypatch):
+    """The slot owns its list. An `itemize` with no `\\item` does not compile,
+    so a region that did not own its wrapper could never be emptied, and a
+    blank resume could not be made at all."""
     import io
 
     import latex
@@ -277,3 +277,52 @@ def test_converting_points_the_draft_at_the_document_it_became(app_client):
     adopted = app_client.post(f"/api/drafts/{draft['id']}/adopt").json()
 
     assert app_client.get(f"/api/drafts/{draft['id']}").json()["resume_instance_id"] == adopted["id"]
+
+
+# ------------------------------------------------- starting from nothing
+
+def test_a_blank_resume_opens_with_regions_to_compose_into(app_client):
+    """Started from the user's own resume.tex instead, a new resume has no
+    slots and the composer cannot touch it at all."""
+    made = app_client.post("/api/resumes", json={"name": "Blank", "blank": True}).json()
+
+    rows = app_client.get(f"/api/resumes/{made['id']}/slots").json()
+
+    assert [row["key"] for row in rows] == ["experience", "education", "projects", "skills"]
+    assert all(row["blocks"] == [] for row in rows)
+
+
+def test_a_resume_not_asked_to_be_blank_still_starts_from_your_own(app_client, resume_tmp):
+    app_client.post("/api/settings/resume-tex", json={"source": "\\documentclass{article}"})
+
+    made = app_client.post("/api/resumes", json={"name": "Mine"}).json()
+
+    assert "% <<slot " not in made["latex"]
+
+
+def test_a_blank_resume_can_be_composed_into_straight_away(app_client):
+    made = app_client.post("/api/resumes", json={"name": "Blank", "blank": True}).json()
+    entry = entry_with(app_client)
+
+    placed = app_client.post(f"/api/resumes/{made['id']}/slots/experience/placements",
+                             json={"entry_id": entry["id"]})
+
+    assert placed.status_code == 200, placed.text
+    assert slot_named(placed.json(), "experience")["blocks"][0]["args"][2] == "Research Assistant"
+
+
+def test_a_blank_resume_compiles_before_anything_is_put_in_it(app_client, monkeypatch):
+    """Four empty regions, and an `itemize` with no `\\item` does not compile,
+    which is what makes the slot own its list rather than sit inside one."""
+    import pytest
+
+    if not _REAL_AVAILABLE():
+        pytest.skip("no TeX engine on this machine")
+    import latex as latex_module
+
+    monkeypatch.setattr(latex_module, "latex_available", _REAL_AVAILABLE)
+    made = app_client.post("/api/resumes", json={"name": "Blank", "blank": True}).json()
+
+    result = _REAL_COMPILE(made["latex"], timeout=180)
+
+    assert result.ok is True, result.log

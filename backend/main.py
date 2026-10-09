@@ -1592,6 +1592,7 @@ def create_resume(payload: ResumeInstanceCreate) -> ResumeInstance:
             description=payload.description,
             latex_source=payload.latex,
             copy_from=payload.copy_from,
+            blank=payload.blank,
         )
     except resumes_module.ResumeNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

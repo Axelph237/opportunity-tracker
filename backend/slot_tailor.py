@@ -501,6 +501,7 @@ def apply_proposal(proposal_id: int, operations: Optional[list[dict]] = None) ->
                 heading=row["block"].get("heading"),
                 args=list(row["block"].get("args") or []),
                 bullets=list(row["block"].get("bullets") or []),
+                in_list=bool(row["block"].get("in_list", True)),
             )
             for row in rows
         ]
