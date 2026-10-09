@@ -19,9 +19,43 @@ const OPERATIONS = {
   RewriteBullet: (op, at) => ['Reword a bullet', `in ${at.placement(op.placement_id)}`],
 }
 
+/**
+ * The same algebra against a document rather than a draft.
+ *
+ * A slot operation names a region and a position, not a ref, so it needs its
+ * own descriptions. Without them every one of them read "in a record no
+ * longer there", because the draft lookups had nothing to resolve.
+ */
+const SLOT_OPERATIONS = {
+  AddEntry: (op, at) => ['Add', `${at.entry(op.entry_id)} to ${op.slot}`],
+  DropEntry: (op, at) => ['Remove', `${at.block(op)} from ${op.slot}`],
+  MoveEntry: (op, at) => ['Move', `${at.block(op)} to position ${(op.position ?? 0) + 1}`],
+  AddBullet: (op, at) => ['Add a bullet', `to ${at.block(op)}`],
+  DropBullet: (op, at) => ['Drop a bullet', `from ${at.block(op)}`],
+  MoveBullet: (op, at) => ['Move a bullet', `to position ${(op.position ?? 0) + 1} in ${at.block(op)}`],
+  RewriteBullet: (op, at) => ['Reword a bullet', `in ${at.block(op)}`],
+}
+
 const KIND_HEADING = {
   tailor: 'Tailored for this ad',
   sync: 'Your bank has moved on since this draft',
+}
+
+/** Names for the things a slot operation points at. */
+function slotLookups(slots, bank) {
+  const byKey = new Map((slots || []).map((slot) => [slot.key, slot]))
+  const entries = new Map((bank || []).map((entry) => [entry.id, entry.title]))
+  const blockOf = (op) => (byKey.get(op.slot)?.blocks || [])[op.block]
+  return {
+    entry: (id) => entries.get(id) || 'a record no longer in your bank',
+    block: (op) => {
+      const block = blockOf(op)
+      if (!block) return `block ${(op.block ?? 0) + 1} of ${op.slot}`
+      const shown = block.args_text?.length ? block.args_text : block.args || []
+      return shown.filter(Boolean)[2] || shown.filter(Boolean)[0] || `block ${(op.block ?? 0) + 1}`
+    },
+    bullet: (op) => (blockOf(op)?.bullets_text || blockOf(op)?.bullets || [])[op.bullet],
+  }
 }
 
 function lookups(body, bank) {
@@ -45,10 +79,12 @@ function lookups(body, bank) {
   }
 }
 
-function Operation({ op, index, checked, onToggle, at }) {
-  const describe = OPERATIONS[op.op]
+function Operation({ op, index, checked, onToggle, at, slotted }) {
+  const describe = (slotted ? SLOT_OPERATIONS : OPERATIONS)[op.op]
   const [verb, detail] = describe ? describe(op, at) : ['Change', op.op || 'something unrecognised']
-  const before = op.bullet_ref ? at.bullet(op.bullet_ref) : null
+  const before = slotted
+    ? (op.bullet === null || op.bullet === undefined ? null : at.bullet(op))
+    : op.bullet_ref ? at.bullet(op.bullet_ref) : null
 
   return (
     <li className="rounded border border-outline-variant bg-surface p-3">
@@ -99,10 +135,12 @@ function Operation({ op, index, checked, onToggle, at }) {
  * app refuses to do, so a tailoring run and a bank that has drifted both land
  * here as the same reviewable list, and only the boxes left ticked are applied.
  */
-export default function ProposalReview({ proposal, body, bank, busy, onApply, onDismiss }) {
+export default function ProposalReview({ proposal, body, bank, slots, busy, onApply, onDismiss }) {
   const operations = proposal?.operations || []
   const [rejected, setRejected] = useState(() => new Set())
-  const at = lookups(body, bank)
+  // A document's operations name slots and positions; a draft's name refs.
+  const slotted = Boolean(slots)
+  const at = slotted ? slotLookups(slots, bank) : lookups(body, bank)
 
   const kept = operations.filter((_op, index) => !rejected.has(index))
 
@@ -150,6 +188,7 @@ export default function ProposalReview({ proposal, body, bank, busy, onApply, on
             op={op}
             index={index}
             at={at}
+            slotted={slotted}
             checked={!rejected.has(index)}
             onToggle={() => toggle(index)}
           />

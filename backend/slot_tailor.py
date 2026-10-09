@@ -273,6 +273,37 @@ def _coverage(instance_id: int, post: dict[str, Any], document: list[dict[str, A
     return keywords.coverage(post.get("keywords") or [], segments)
 
 
+def coverage_report(instance_id: int) -> dict[str, Any]:
+    """The ad's vocabulary against what this document actually says.
+
+    Measured on the slot contents rather than the whole source, because the
+    preamble and the macro names are not things the resume claims.
+    """
+    instance = resumes.get_instance(instance_id)
+    post_id = instance.get("job_post_id")
+    blank = {
+        "resume_instance_id": instance_id,
+        "job_post_id": post_id,
+        "covered": 0,
+        "total": 0,
+        "keywords": [],
+    }
+    if post_id is None:
+        return blank
+    try:
+        post = jobposts.get_post(post_id)
+    except jobposts.JobPostNotFound:
+        return blank
+
+    results = _coverage(instance_id, post, _document(instance_id))
+    return {
+        **blank,
+        "covered": sum(1 for row in results if row.get("covered")),
+        "total": len(results),
+        "keywords": results,
+    }
+
+
 def propose(instance_id: int, *, model: Optional[str] = None) -> dict[str, Any]:
     """Ask for a set of changes, keep only the ones the algebra allows."""
     instance = resumes.get_instance(instance_id)

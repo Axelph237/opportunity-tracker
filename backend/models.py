@@ -471,6 +471,9 @@ class ResumeInstanceSummary(BaseModel):
     # looking back along `resume_drafts.resume_instance_id` rather than stored,
     # so there is one place that owns the link and it cannot fall out of step.
     draft_id: Optional[int] = None
+    # The ad this document is written for, which coverage and tailoring both
+    # measure against.
+    job_post_id: Optional[int] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -710,6 +713,16 @@ class Coverage(BaseModel):
     covered: bool = False
     hits: int = 0
     where: list[str] = Field(default_factory=list)   # refs of the placements carrying the term
+
+
+class ResumeCoverage(BaseModel):
+    """How much of the ad's vocabulary a document already says."""
+
+    resume_instance_id: int
+    job_post_id: Optional[int] = None
+    covered: int = 0
+    total: int = 0
+    keywords: list[Coverage] = Field(default_factory=list)
 
 
 class CoverageReport(BaseModel):
