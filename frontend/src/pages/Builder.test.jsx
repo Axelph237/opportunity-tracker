@@ -378,11 +378,11 @@ describe('Builder / naming the resume', () => {
     return screen.getByRole('textbox', { name: 'Resume name' })
   }
 
-  it('shows a switcher and a rename control, not two fields holding the name', async () => {
+  it('shows the open resume name and a rename control, not an editable field', async () => {
     await setup()
 
-    expect(screen.getByRole('button', { name: /switch resume/i })).toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: 'Resume name' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rename this resume' })).toBeInTheDocument()
   })
 
   it('renames the open resume', async () => {
@@ -431,7 +431,7 @@ describe('Builder / naming the resume', () => {
     fireEvent.blur(field)
 
     expect(api.updateResumeInstance).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: /switch resume/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rename this resume' })).toBeInTheDocument()
   })
 })
 
@@ -587,10 +587,7 @@ describe('Builder / one surface with two sides', () => {
       ],
     })
 
-    const switcher = screen.getByRole('button', { name: /switch resume/i })
-    await userEvent.setup().click(switcher)
-
-    expect(screen.getByRole('option', { name: 'Written by hand' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Written by hand/ })).toBeInTheDocument()
   })
 })
 
@@ -744,17 +741,14 @@ describe('Builder / switching between resumes', () => {
     const user = userEvent.setup()
     await setup({ library: libraryOf([INSTANCE, second]) })
 
-    await user.click(screen.getByRole('button', { name: /switch resume/i }))
-
-    expect(screen.getByRole('option', { name: 'Second resume' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Second resume/ })).toBeInTheDocument()
   })
 
   it('opens the one that was picked', async () => {
     const user = userEvent.setup()
     await setup({ library: libraryOf([INSTANCE, second]) })
 
-    await user.click(screen.getByRole('button', { name: /switch resume/i }))
-    await user.click(screen.getByRole('option', { name: 'Second resume' }))
+    await user.click(screen.getByRole('button', { name: /Second resume/ }))
 
     await waitFor(() => expect(api.resumeInstance).toHaveBeenCalledWith(2))
   })
@@ -765,9 +759,7 @@ describe('Builder / switching between resumes', () => {
     const user = userEvent.setup()
     await setup({ library: [...libraryOf([INSTANCE]), unconverted] })
 
-    await user.click(screen.getByRole('button', { name: /switch resume/i }))
-
-    expect(screen.getByRole('option', { name: /A legacy draft/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /A legacy draft/ })).toBeInTheDocument()
   })
 
   it('converts an old one the moment it is asked for', async () => {
@@ -775,8 +767,7 @@ describe('Builder / switching between resumes', () => {
     api.adoptDraft.mockResolvedValue({ ...INSTANCE, id: 42 })
     await setup({ library: [...libraryOf([INSTANCE]), unconverted] })
 
-    await user.click(screen.getByRole('button', { name: /switch resume/i }))
-    await user.click(screen.getByRole('option', { name: /A legacy draft/ }))
+    await user.click(screen.getByRole('button', { name: /A legacy draft/ }))
 
     await waitFor(() => expect(api.adoptDraft).toHaveBeenCalledWith(7))
     await waitFor(() => expect(api.resumeInstance).toHaveBeenCalledWith(42))

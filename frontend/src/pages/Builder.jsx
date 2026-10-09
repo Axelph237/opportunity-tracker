@@ -4,9 +4,9 @@ import BankEntryForm from '../components/BankEntryForm'
 import BankRail from '../components/BankRail'
 import ContactForm from '../components/ContactForm'
 import CoveragePanel, { JobAdForm } from '../components/CoveragePanel'
-import Dropdown from '../components/Dropdown'
 import PageLayout from '../components/PageLayout'
 import ProposalReview from '../components/ProposalReview'
+import ResumeLibraryRail from '../components/ResumeLibraryRail'
 import SlotCanvas from '../components/SlotCanvas'
 import SurfaceToggle from '../components/SurfaceToggle'
 import SlidePanel from '../components/SlidePanel'
@@ -15,6 +15,7 @@ import { useConfirm } from '../components/ConfirmDialog'
 import { EditIcon, PlusIcon } from '../components/icons'
 import { api } from '../api'
 
+const RAIL_WIDTH = { min: 160, max: 420 }
 const BANK_WIDTH = { default: 240, min: 180, max: 420 }
 const COVERAGE_WIDTH = { default: 300, min: 240, max: 560 }
 
@@ -159,6 +160,9 @@ export default function Builder() {
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState(null)
 
+  // The same rail as the other surface, remembered under its own key: the
+  // two pages show the same list but are not the same layout.
+  const [railWidth, setRailWidth, resetRail] = usePanelSize('builder.rail', 224, RAIL_WIDTH)
   const [bankWidth, setBankWidth, resetBank] = usePanelSize('builder.bank', BANK_WIDTH.default, BANK_WIDTH)
   const [coverageWidth, setCoverageWidth, resetCoverage] = usePanelSize(
     'builder.coverage',
@@ -312,14 +316,6 @@ export default function Builder() {
    * that can open it. Hiding those would make this list quietly different
    * from the one on the other surface.
    */
-  // Every resume, including ones made before documents were the truth.
-  // Filtering those out left them unreachable from here, which is to say
-  // lost: this is the only page that could ever open them.
-  const switcherOptions = library.map((row) => ({
-    value: row.pushed ? `instance:${row.instance_id}` : `draft:${row.draft_id}`,
-    label: row.pushed ? row.name : `${row.name} (not yet converted)`,
-  }))
-
   /**
    * Open a resume, converting an old draft the moment it is asked for.
    *
@@ -479,8 +475,8 @@ export default function Builder() {
         draftId={instance?.draft_id}
         instanceId={instance?.id}
       />
-      {/* One position, two modes. Showing the name in a field beside a
-          switcher that also showed it read as two inputs for the same thing. */}
+      {/* The name lives in the rail, on the row that is highlighted, so the
+          only thing needed here is a way to change it. */}
       {renaming && instance ? (
         <input
           autoFocus
@@ -500,15 +496,7 @@ export default function Builder() {
             }
           }}
         />
-      ) : (
-        <Dropdown
-          value={instance ? `instance:${instance.id}` : ''}
-          onChange={openRow}
-          options={switcherOptions}
-          ariaLabel="Switch resume"
-          className="w-56"
-        />
-      )}
+      ) : null}
       {instance && !renaming ? (
         <button
           type="button"
@@ -520,10 +508,6 @@ export default function Builder() {
           <EditIcon />
         </button>
       ) : null}
-      <button type="button" className="btn" onClick={createResume} disabled={busy} title="Start another resume">
-        <PlusIcon />
-        New
-      </button>
       {standing ? (
         <button
           type="button"
@@ -560,6 +544,28 @@ export default function Builder() {
       actions={actions}
     >
       <div className="flex h-full min-h-0">
+        <div className="h-full min-h-0 shrink-0 bg-surface-container" style={{ width: railWidth }}>
+          <ResumeLibraryRail
+            rows={library}
+            selectedKey={instance ? `instance:${instance.id}` : null}
+            onSelect={(row) =>
+              openRow(row.pushed ? `instance:${row.instance_id}` : `draft:${row.draft_id}`)
+            }
+            onCreate={createResume}
+            busy={busy}
+          />
+        </div>
+
+        <ResizeHandle
+          orientation="vertical"
+          label="Resize the resume list"
+          value={railWidth}
+          onChange={setRailWidth}
+          onReset={resetRail}
+          min={RAIL_WIDTH.min}
+          max={RAIL_WIDTH.max}
+        />
+
         <div className="h-full min-h-0 shrink-0 bg-surface-container" style={{ width: bankWidth }}>
           <BankRail
             entries={bank}
