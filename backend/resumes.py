@@ -238,7 +238,7 @@ def create_instance(
     return get_instance(instance_id)
 
 
-EDITABLE_FIELDS = ("name", "description", "latex")
+EDITABLE_FIELDS = ("name", "description", "latex", "job_post_id")
 
 
 def update_instance(instance_id: int, values: dict[str, Any]) -> dict[str, Any]:

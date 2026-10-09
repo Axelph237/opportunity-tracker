@@ -502,6 +502,9 @@ class ResumeInstanceUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     latex: Optional[str] = None
+    # The ad this document is written for. Coverage and tailoring both
+    # measure against it, so a resume with none can do neither.
+    job_post_id: Optional[StrictInt] = None
 
     @field_validator("name")
     @classmethod
@@ -851,6 +854,44 @@ class SlotBlock(BaseModel):
     # pair above is what is written back.
     args_text: list[str] = Field(default_factory=list)
     bullets_text: list[str] = Field(default_factory=list)
+
+
+class SlotOp(BaseModel):
+    """One operation from the closed algebra a slot proposal may use.
+
+    A block is named by where it sits, because the document stores no id for
+    one. That is why a proposal is only valid against the document it was
+    built from.
+    """
+
+    op: Literal["AddEntry", "DropEntry", "MoveEntry",
+                "AddBullet", "DropBullet", "MoveBullet", "RewriteBullet"]
+    slot: str
+    accepted: bool = True
+    rationale: Optional[str] = None
+    block: Optional[StrictInt] = None
+    bullet: Optional[StrictInt] = None
+    position: Optional[StrictInt] = None
+    entry_id: Optional[StrictInt] = None
+    bullet_id: Optional[StrictInt] = None
+    text: Optional[str] = None
+
+
+class SlotProposal(BaseModel):
+    """A set of changes offered against one document, awaiting a decision."""
+
+    id: int
+    resume_instance_id: int
+    status: str
+    summary: Optional[str] = None
+    operations: list[SlotOp] = Field(default_factory=list)
+    created_at: Optional[str] = None
+    resolved_at: Optional[str] = None
+
+
+class SlotProposalResolve(BaseModel):
+    action: Literal["apply", "dismiss"]
+    operations: Optional[list[SlotOp]] = None
 
 
 class SlotWrite(BaseModel):
