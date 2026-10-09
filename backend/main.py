@@ -77,6 +77,7 @@ from models import (
     LibraryResume,
     ResumeContact,
     SlotMarkers,
+    ResumeCoverage,
     SlotProposal,
     SlotProposalResolve,
     SlotPlacement,
@@ -1968,6 +1969,16 @@ def place_in_resume_slot(instance_id: int, key: str, payload: SlotPlacement) -> 
     except slots_module.SlotError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return [DocumentSlot(**row) for row in rows]
+
+
+@app.get("/api/resumes/{instance_id}/coverage", response_model=ResumeCoverage)
+def get_resume_coverage(instance_id: int) -> ResumeCoverage:
+    try:
+        return ResumeCoverage(**slot_tailor_module.coverage_report(instance_id))
+    except resumes_module.ResumeNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except slots_module.SlotError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post("/api/resumes/{instance_id}/tailor", response_model=SlotProposal)

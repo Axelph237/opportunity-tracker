@@ -231,3 +231,43 @@ def test_a_resume_with_no_slots_says_so_rather_than_offering_nothing(app_client)
 
     assert response.status_code == 422
     assert "no slots" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------- coverage
+
+def test_coverage_measures_the_document_against_its_ad(app_client):
+    instance_id, _ = tailorable(app_client)
+    post_id = app_client.get(f"/api/resumes/{instance_id}").json()["job_post_id"]
+    app_client.patch(f"/api/job-posts/{post_id}", json={
+        "keywords": [{"term": "data ingestion", "bucket": "technical"},
+                     {"term": "Rust", "bucket": "technical"}],
+    })
+
+    report = app_client.get(f"/api/resumes/{instance_id}/coverage").json()
+
+    assert report["total"] == 2
+    assert report["covered"] == 1
+    assert [row["covered"] for row in report["keywords"]] == [True, False]
+
+
+def test_coverage_reads_what_the_slots_say_not_the_whole_file(app_client):
+    """Prose sitting outside every slot is not a claim the resume makes about
+    the candidate, so it must not count as covering a term. `Prose nothing
+    may touch.` is in this document and outside its only slot."""
+    instance_id, _ = tailorable(app_client)
+    post_id = app_client.get(f"/api/resumes/{instance_id}").json()["job_post_id"]
+    app_client.patch(f"/api/job-posts/{post_id}",
+                     json={"keywords": [{"term": "Prose", "bucket": "technical"}]})
+
+    report = app_client.get(f"/api/resumes/{instance_id}/coverage").json()
+
+    assert report["covered"] == 0
+
+
+def test_a_document_with_no_ad_reports_nothing_rather_than_failing(app_client):
+    made = app_client.post("/api/resumes", json={"name": "No ad"}).json()
+
+    report = app_client.get(f"/api/resumes/{made['id']}/coverage").json()
+
+    assert report == {"resume_instance_id": made["id"], "job_post_id": None,
+                      "covered": 0, "total": 0, "keywords": []}

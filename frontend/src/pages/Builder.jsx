@@ -183,6 +183,21 @@ export default function Builder() {
     setStanding(pending[0] ?? null)
   }, [])
 
+  /**
+   * Coverage for whichever half owns this resume.
+   *
+   * A slotted document measures its own slot contents; a draft measures its
+   * body. Routed here rather than at each call site so the four of them
+   * cannot drift apart.
+   */
+  const refreshCoverageFor = async () => {
+    if (slotted && documentId) {
+      setCoverage((await api.resumeCoverage(documentId)).keywords || [])
+      return
+    }
+    await refreshCoverage(draft?.id, Boolean(draft?.job_post_id))
+  }
+
   const refreshCoverage = useCallback(async (id, hasJobPost) => {
     // Nothing to measure against until an ad is attached, and asking anyway
     // would put a permanent error on a draft that is simply not started yet.
@@ -245,9 +260,25 @@ export default function Builder() {
     ;(async () => {
       try {
         const rows = await api.resumeSlots(instanceId)
-        if (!cancelled) {
-          setDocSlots(rows.length ? rows : null)
-          setSlotError(null)
+        if (cancelled) return
+        setDocSlots(rows.length ? rows : null)
+        setSlotError(null)
+        if (!rows.length) return
+        // Separately, and deliberately. Everything the right-hand panel reads
+        // hangs off the document now, but a panel that failed to load is not
+        // a reason to blank the canvas that loaded fine.
+        try {
+          const [instance, report, proposals] = await Promise.all([
+            api.resumeInstance(instanceId),
+            api.resumeCoverage(instanceId),
+            api.resumeProposals(instanceId),
+          ])
+          if (cancelled) return
+          setJobPost(instance.job_post_id ? await api.jobPost(instance.job_post_id) : null)
+          setCoverage(report.keywords || [])
+          setStanding(proposals.find((row) => row.status === 'pending') ?? null)
+        } catch (panelErr) {
+          if (!cancelled) setError(panelErr.message)
         }
       } catch (err) {
         // A 409 means the markers do not pair up, which is a state the
@@ -263,6 +294,12 @@ export default function Builder() {
       cancelled = true
     }
   }, [draft?.resume_instance_id, draft?.updated_at])
+
+  // Which half of the app a resume belongs to. A document with slots is
+  // composed, tailored and measured through its own source; one without
+  // is still a draft.
+  const slotted = Boolean(docSlots)
+  const documentId = draft?.resume_instance_id
 
   const refreshSlots = (rows) => {
     setDocSlots(rows.length ? rows : null)
@@ -398,6 +435,14 @@ export default function Builder() {
       const post = await api.createJobPost(body)
       setEditingAd(false)
       setJobPost(post)
+      // The ad hangs off whichever half is the resume. A slotted document
+      // is tailored and measured through its own source, so attaching it to
+      // the draft behind it would leave both looking at nothing.
+      if (slotted && documentId) {
+        await api.updateResumeInstance(documentId, { job_post_id: post.id })
+        await refreshCoverageFor()
+        return
+      }
       const saved = await api.updateDraft(draft.id, { job_post_id: post.id })
       setDraft((current) => ({ ...current, ...saved }))
     })
@@ -420,7 +465,7 @@ export default function Builder() {
   const tailor = async () => {
     setGenerating(true)
     try {
-      setProposal(await api.tailorDraft(draft.id))
+      setProposal(slotted ? await api.tailorResume(documentId) : await api.tailorDraft(draft.id))
       setError(null)
     } catch (err) {
       setError(err.message)
@@ -431,10 +476,15 @@ export default function Builder() {
 
   const resolveProposal = (operations) =>
     act(async () => {
-      const updated = await api.resolveProposal(
-        proposal.id,
-        operations ? { action: 'apply', operations } : { action: 'dismiss' },
-      )
+      const body = operations ? { action: 'apply', operations } : { action: 'dismiss' }
+      if (slotted) {
+        await api.resolveResumeProposal(proposal.id, body)
+        setProposal(null)
+        refreshSlots(await api.resumeSlots(documentId))
+        setCoverage((await api.resumeCoverage(documentId)).keywords || [])
+        return
+      }
+      const updated = await api.resolveProposal(proposal.id, body)
       if (updated?.id) setDraft(updated)
       setProposal(null)
       await Promise.all([
@@ -832,6 +882,7 @@ export default function Builder() {
             body={draft?.body}
             bank={bank}
             busy={busy}
+            slots={docSlots}
             onApply={resolveProposal}
             onDismiss={() => resolveProposal(null)}
           />

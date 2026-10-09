@@ -36,6 +36,12 @@ vi.mock('../api', async (importOriginal) => {
       resumeSlots: vi.fn(),
       writeResumeSlot: vi.fn(),
       placeInResumeSlot: vi.fn(),
+      resumeCoverage: vi.fn(),
+      resumeInstance: vi.fn(),
+      tailorResume: vi.fn(),
+      resumeProposals: vi.fn(),
+      resolveResumeProposal: vi.fn(),
+      updateResumeInstance: vi.fn(),
       compileResumeInstance: vi.fn(),
       saveResumeContact: vi.fn(),
       jobPost: vi.fn(),
@@ -890,5 +896,84 @@ describe('Builder / composing a document that has slots', () => {
     await setup()
 
     expect(await screen.findByRole('textbox', { name: /rename the experience section/i })).toBeInTheDocument()
+  })
+})
+
+describe('Builder / tailoring a document rather than a draft', () => {
+  const PUSHED = { ...DRAFT, resume_instance_id: 12 }
+  const SLOTS = [{
+    key: 'experience', name: 'Experience',
+    blocks: [{
+      kind: 'entry', raw: '', heading: 'resumeSubheading',
+      args: ['Fermilab', '2026', 'Intern', 'Batavia, IL'],
+      args_text: ['Fermilab', '2026', 'Intern', 'Batavia, IL'],
+      bullets: ['Calibrated the readout'], bullets_text: ['Calibrated the readout'],
+    }],
+  }]
+  const PROPOSAL = {
+    id: 5, resume_instance_id: 12, status: 'pending', summary: 'Leads with the build',
+    operations: [{ op: 'RewriteBullet', slot: 'experience', block: 0, bullet: 0,
+                   text: 'Rebuilt the readout', accepted: true, rationale: 'mirrors the ad' }],
+  }
+
+  it('asks the document for a plan, not the draft behind it', async () => {
+    const user = userEvent.setup()
+    api.tailorResume.mockResolvedValue(PROPOSAL)
+    await setup({ draft: PUSHED, slots: SLOTS, jobPost: JOB_POST, coverage: coverageOf(true) })
+
+    await user.click(await screen.findByRole('button', { name: /tailor to this ad/i }))
+
+    await waitFor(() => expect(api.tailorResume).toHaveBeenCalledWith(12))
+    expect(api.tailorDraft).not.toHaveBeenCalled()
+  })
+
+  it('resolves against the document and re-reads its slots', async () => {
+    const user = userEvent.setup()
+    api.tailorResume.mockResolvedValue(PROPOSAL)
+    api.resolveResumeProposal.mockResolvedValue({ ...PROPOSAL, status: 'applied' })
+    await setup({ draft: PUSHED, slots: SLOTS, jobPost: JOB_POST, coverage: coverageOf(true) })
+
+    await user.click(await screen.findByRole('button', { name: /tailor to this ad/i }))
+    const panel = await screen.findByRole('dialog')
+    await user.click(within(panel).getByRole('button', { name: /apply/i }))
+
+    await waitFor(() => expect(api.resolveResumeProposal).toHaveBeenCalled())
+    expect(api.resolveProposal).not.toHaveBeenCalled()
+    expect(api.resumeSlots).toHaveBeenCalledWith(12)
+  })
+
+  it('attaches a pasted ad to the document, which is what measures against it', async () => {
+    const user = userEvent.setup()
+    api.createJobPost.mockResolvedValue(JOB_POST)
+    api.updateResumeInstance.mockResolvedValue({ id: 12 })
+    await setup({ draft: { ...PUSHED, job_post_id: null }, slots: SLOTS, jobPost: null })
+
+    await user.click(await screen.findByRole('button', { name: /paste the job ad/i }))
+    const panel = await screen.findByRole('dialog')
+    await user.type(within(panel).getByRole('textbox', { name: /role/i }), 'Intern')
+    await user.type(within(panel).getByRole('textbox', { name: /the ad/i }), 'We need Qiskit.')
+    await user.click(within(panel).getByRole('button', { name: /save the ad/i }))
+
+    await waitFor(() =>
+      expect(api.updateResumeInstance).toHaveBeenCalledWith(12, { job_post_id: 4 }))
+    expect(api.updateDraft).not.toHaveBeenCalledWith(9, { job_post_id: 4 })
+  })
+})
+
+describe('Builder / a document that failed to load its panel', () => {
+  it('still lays out the slots it did load', async () => {
+    // A coverage call that fell over is not a reason to blank the canvas.
+    api.resumeCoverage.mockRejectedValue(new Error('coverage is down'))
+    await setup({
+      draft: { ...DRAFT, resume_instance_id: 12 },
+      slots: [{
+        key: 'experience', name: 'Experience',
+        blocks: [{ kind: 'entry', raw: '', heading: 'resumeSubheading',
+                   args_text: ['Fermilab', '2026', 'Intern', 'Batavia, IL'],
+                   args: [], bullets: [], bullets_text: [] }],
+      }],
+    })
+
+    expect(await screen.findByText('Intern')).toBeInTheDocument()
   })
 })

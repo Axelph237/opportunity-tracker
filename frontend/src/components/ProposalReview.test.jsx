@@ -166,3 +166,45 @@ describe('ProposalReview / nothing to change', () => {
     expect(screen.queryByRole('button', { name: /^apply/i })).not.toBeInTheDocument()
   })
 })
+
+describe('ProposalReview / a document rather than a draft', () => {
+  const SLOTS = [{
+    key: 'experience', name: 'Experience',
+    blocks: [{
+      kind: 'entry', raw: '', heading: 'resumeSubheading',
+      args: ['UChicago PME', 'Jun 2025', 'Research Assistant', 'Chicago, IL'],
+      args_text: ['UChicago PME', 'Jun 2025', 'Research Assistant', 'Chicago, IL'],
+      bullets: ['Helped with it'], bullets_text: ['Helped with it'],
+    }],
+  }]
+  const slotProposal = (op) => ({
+    id: 5, kind: 'tailor', status: 'pending', summary: 'x',
+    operations: [{ slot: 'experience', block: 0, accepted: true, ...op }],
+  })
+
+  const show = (proposal) =>
+    render(
+      <ProposalReview proposal={proposal} slots={SLOTS} bank={[]} onApply={vi.fn()} onDismiss={vi.fn()} />,
+    )
+
+  it('names the block an operation points at, rather than calling it missing', () => {
+    // Described with the draft vocabulary, every slot operation read "in a
+    // record no longer there", because there was no ref for it to resolve.
+    show(slotProposal({ op: 'RewriteBullet', bullet: 0, text: 'Built it' }))
+
+    expect(screen.getByText(/Research Assistant/)).toBeInTheDocument()
+    expect(screen.queryByText(/no longer there/i)).not.toBeInTheDocument()
+  })
+
+  it('shows the bullet being replaced, read from the block', () => {
+    show(slotProposal({ op: 'RewriteBullet', bullet: 0, text: 'Built it' }))
+
+    expect(screen.getByText(/Helped with it/)).toBeInTheDocument()
+  })
+
+  it('falls back to the position when the block is not where it was', () => {
+    show(slotProposal({ op: 'DropEntry', block: 9 }))
+
+    expect(screen.getByText(/block 10 of experience/i)).toBeInTheDocument()
+  })
+})
