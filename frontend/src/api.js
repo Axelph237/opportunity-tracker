@@ -167,6 +167,7 @@ export const api = {
   reorderBankEntries: (ids) => post('/bank/entries/reorder', { ids }),
   importBank: () => post('/bank/import'),
   resumeLibrary: () => get('/resume-library'),
+  adoptDraft: (id) => post(`/drafts/${id}/adopt`),
   resumeSlots: (id) => get(`/resumes/${id}/slots`),
   writeResumeSlot: (id, key, blocks) => put(`/resumes/${id}/slots/${key}`, { blocks }),
   placeInResumeSlot: (id, key, body) => post(`/resumes/${id}/slots/${key}/placements`, body),

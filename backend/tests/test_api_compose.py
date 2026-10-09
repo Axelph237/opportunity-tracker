@@ -326,3 +326,14 @@ def test_a_blank_resume_compiles_before_anything_is_put_in_it(app_client, monkey
     result = _REAL_COMPILE(made["latex"], timeout=180)
 
     assert result.ok is True, result.log
+
+
+def test_converting_an_empty_draft_gives_a_resume_that_can_be_composed(app_client):
+    """It renders to a document with no sections and so no regions, which
+    would convert it into a resume the composer cannot touch."""
+    draft = app_client.post("/api/drafts", json={"name": "Never used"}).json()
+
+    adopted = app_client.post(f"/api/drafts/{draft['id']}/adopt").json()
+
+    rows = app_client.get(f"/api/resumes/{adopted['id']}/slots").json()
+    assert [row["key"] for row in rows] == ["experience", "education", "projects", "skills"]

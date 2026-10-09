@@ -148,6 +148,11 @@ def adopt_draft(draft_id: int) -> int:
         contact_module.get_contact(),
         slots.markers(),
     )
+    # A draft with nothing in it renders to a document with no sections, and
+    # so no regions either, which would convert it into a resume the
+    # composer cannot touch. The blank skeleton is what it was going to be.
+    if not slots.find(source):
+        source = blank_source()
 
     instance_id = draft.get("resume_instance_id")
     if instance_id is None:

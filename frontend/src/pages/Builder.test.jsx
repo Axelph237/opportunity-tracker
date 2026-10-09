@@ -23,6 +23,7 @@ vi.mock('../api', async (importOriginal) => {
       importBank: vi.fn(),
       resumeContact: vi.fn(),
       resumeLibrary: vi.fn(),
+      adoptDraft: vi.fn(),
       resumeSlots: vi.fn(),
       writeResumeSlot: vi.fn(),
       placeInResumeSlot: vi.fn(),
@@ -133,10 +134,17 @@ async function setup({
       </ConfirmProvider>
     </MemoryRouter>,
   )
-  // The canvas is ready when a region of the document is on screen, or the
-  // page says there is no resume open.
-  if (instance) await screen.findByText(slots.length ? slots[0].name : /no slots yet/i)
-  else await screen.findByRole('button', { name: /start a resume/i })
+  // Waited on the canvas itself, by a marker only it renders. Waiting on
+  // the slot's name matched the bank rail's group heading instead, which is
+  // on screen before the document has loaded, so a test could run against a
+  // canvas that was still empty.
+  if (instance) {
+    await waitFor(() =>
+      expect(document.querySelector('[data-slot], [data-canvas-empty]')).toBeTruthy(),
+    )
+  } else {
+    await screen.findByRole('button', { name: /start a resume/i })
+  }
 }
 
 const transfer = () => ({ setData: vi.fn(), getData: vi.fn(), dropEffect: '', effectAllowed: '' })
@@ -160,9 +168,10 @@ describe('Builder / the three panes', () => {
   it('puts the bank, the resume and the ad’s keywords side by side', async () => {
     await setup()
     expect(screen.getByText('Experience bank')).toBeInTheDocument()
-    // A bullet, which only the composed block shows: the rail lists records
-    // and their counts, not their text.
-    expect(screen.getByText('Built the DAQ pipeline')).toBeInTheDocument()
+    // The canvas by its structure, not its text: every line in it goes
+    // through the keyword highlighter, which splits a sentence across
+    // elements so no whole-string matcher can find it.
+    expect(document.querySelectorAll('[data-block]').length).toBe(1)
     expect(screen.getByText('Keyword coverage')).toBeInTheDocument()
   })
 
@@ -720,5 +729,56 @@ describe('Builder / a document that failed to load its panel', () => {
     })
 
     expect(await screen.findByText('Intern')).toBeInTheDocument()
+  })
+})
+
+describe('Builder / switching between resumes', () => {
+  const second = { ...INSTANCE, id: 2, name: 'Second resume' }
+  const unconverted = {
+    key: 'draft:7', instance_id: null, draft_id: 7, name: 'A legacy draft',
+    composed: true, pushed: false, has_pdf: false, is_default: false,
+    compile_ok: false, linked_count: 0, updated_at: null,
+  }
+
+  it('offers every other resume in the switcher', async () => {
+    const user = userEvent.setup()
+    await setup({ library: libraryOf([INSTANCE, second]) })
+
+    await user.click(screen.getByRole('button', { name: /switch resume/i }))
+
+    expect(screen.getByRole('option', { name: 'Second resume' })).toBeInTheDocument()
+  })
+
+  it('opens the one that was picked', async () => {
+    const user = userEvent.setup()
+    await setup({ library: libraryOf([INSTANCE, second]) })
+
+    await user.click(screen.getByRole('button', { name: /switch resume/i }))
+    await user.click(screen.getByRole('option', { name: 'Second resume' }))
+
+    await waitFor(() => expect(api.resumeInstance).toHaveBeenCalledWith(2))
+  })
+
+  it('offers a resume made before documents were the truth', async () => {
+    // Filtering these out left them unreachable, which is to say lost: this
+    // is the only page that could ever open one.
+    const user = userEvent.setup()
+    await setup({ library: [...libraryOf([INSTANCE]), unconverted] })
+
+    await user.click(screen.getByRole('button', { name: /switch resume/i }))
+
+    expect(screen.getByRole('option', { name: /A legacy draft/ })).toBeInTheDocument()
+  })
+
+  it('converts an old one the moment it is asked for', async () => {
+    const user = userEvent.setup()
+    api.adoptDraft.mockResolvedValue({ ...INSTANCE, id: 42 })
+    await setup({ library: [...libraryOf([INSTANCE]), unconverted] })
+
+    await user.click(screen.getByRole('button', { name: /switch resume/i }))
+    await user.click(screen.getByRole('option', { name: /A legacy draft/ }))
+
+    await waitFor(() => expect(api.adoptDraft).toHaveBeenCalledWith(7))
+    await waitFor(() => expect(api.resumeInstance).toHaveBeenCalledWith(42))
   })
 })

@@ -167,7 +167,7 @@ export default function SlotCanvas({
         <ContactBlock contact={contact} onEdit={onEditContact} />
 
         {error ? (
-          <div className="rounded border border-error/60 bg-error/10 px-4 py-3 text-error">
+          <div data-canvas-empty className="rounded border border-error/60 bg-error/10 px-4 py-3 text-error">
             {error}
           </div>
         ) : slots.length ? (
@@ -182,7 +182,10 @@ export default function SlotCanvas({
             />
           ))
         ) : (
-          <div className="rounded border border-dashed border-outline-variant px-6 py-12 text-center">
+          <div
+            data-canvas-empty
+            className="rounded border border-dashed border-outline-variant px-6 py-12 text-center"
+          >
             <p className="text-on-surface-variant">
               This resume has no slots yet. Mark a region of its source with slot comments and it
               will show up here, ready to compose into.

@@ -312,13 +312,33 @@ export default function Builder() {
    * that can open it. Hiding those would make this list quietly different
    * from the one on the other surface.
    */
-  // Only a resume with a document behind it can be opened here. There is no
-  // other kind any more; the switcher lists what the rail lists.
-  const switcherOptions = library
-    .filter((row) => row.pushed)
-    .map((row) => ({ value: String(row.instance_id), label: row.name }))
+  // Every resume, including ones made before documents were the truth.
+  // Filtering those out left them unreachable from here, which is to say
+  // lost: this is the only page that could ever open them.
+  const switcherOptions = library.map((row) => ({
+    value: row.pushed ? `instance:${row.instance_id}` : `draft:${row.draft_id}`,
+    label: row.pushed ? row.name : `${row.name} (not yet converted)`,
+  }))
 
-  const openRow = (value) => setInstanceId(Number(value) || null)
+  /**
+   * Open a resume, converting an old draft the moment it is asked for.
+   *
+   * Conversion on demand rather than all at once on startup: the user is
+   * here, looking at it, so a conversion that comes out wrong is something
+   * they see immediately rather than discover later.
+   */
+  const openRow = (value) => {
+    const [kind, id] = String(value).split(':')
+    if (kind === 'instance') {
+      setInstanceId(Number(id) || null)
+      return
+    }
+    act(async () => {
+      const adopted = await api.adoptDraft(Number(id))
+      setLibrary(await api.resumeLibrary())
+      setInstanceId(adopted.id)
+    })
+  }
 
   /** A blank resume: an empty slotted skeleton, composable from the start. */
   const createResume = () =>
@@ -482,7 +502,7 @@ export default function Builder() {
         />
       ) : (
         <Dropdown
-          value={instance ? String(instance.id) : ''}
+          value={instance ? `instance:${instance.id}` : ''}
           onChange={openRow}
           options={switcherOptions}
           ariaLabel="Switch resume"
