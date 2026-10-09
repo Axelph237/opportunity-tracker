@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import ContactBlock from './ContactBlock'
 import HighlightedText from './HighlightedText'
 import { DragHandleIcon, TrashIcon } from './icons'
 import { arrowMove, useServerReorder } from './useServerReorder'
@@ -18,7 +19,7 @@ import { arrowMove, useServerReorder } from './useServerReorder'
 
 const keyOf = (block, index) => `${index}:${block.kind}:${(block.raw || '').slice(0, 24)}`
 
-function Block({ block, index, terms, dragging, itemProps, moveBy, onRemove }) {
+function Block({ block, index, anchor, terms, dragging, itemProps, moveBy, onRemove }) {
   // The readable form, not the LaTeX. A canvas showing `38\%` is showing
   // the markup rather than the resume.
   const [org, dates, title, where] = block.args_text?.length ? block.args_text : block.args || []
@@ -28,6 +29,7 @@ function Block({ block, index, terms, dragging, itemProps, moveBy, onRemove }) {
   return (
     <li
       {...itemProps}
+      data-block={anchor}
       tabIndex={0}
       onKeyDown={arrowMove(index, moveBy)}
       className={`group/block rounded border px-3 py-2 transition-colors ${
@@ -89,6 +91,7 @@ function Slot({ slot, terms, accepting, onPlace, onBlocks }) {
 
   return (
     <section
+      data-slot={slot.key}
       onDragOver={(event) => {
         if (!accepting) return
         event.preventDefault()
@@ -120,6 +123,7 @@ function Slot({ slot, terms, accepting, onPlace, onBlocks }) {
             return (
               <Block
                 key={keyOf(block, at)}
+                anchor={`${slot.key}:${at}`}
                 block={block}
                 index={at}
                 terms={terms}
@@ -145,8 +149,10 @@ export default function SlotCanvas({
   terms = [],
   droppingEntry,
   error,
+  contact,
   onPlace,
   onBlocks,
+  onEditContact,
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -158,6 +164,8 @@ export default function SlotCanvas({
         aria-describedby="slot-reorder-hint"
         className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4"
       >
+        <ContactBlock contact={contact} onEdit={onEditContact} />
+
         {error ? (
           <div className="rounded border border-error/60 bg-error/10 px-4 py-3 text-error">
             {error}

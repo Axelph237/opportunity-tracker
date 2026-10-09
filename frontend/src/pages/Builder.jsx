@@ -4,7 +4,6 @@ import BankEntryForm from '../components/BankEntryForm'
 import BankRail from '../components/BankRail'
 import ContactForm from '../components/ContactForm'
 import CoveragePanel, { JobAdForm } from '../components/CoveragePanel'
-import DraftCanvas from '../components/DraftCanvas'
 import Dropdown from '../components/Dropdown'
 import PageLayout from '../components/PageLayout'
 import ProposalReview from '../components/ProposalReview'
@@ -124,9 +123,8 @@ function ImportPreview({ preview, busy, onConfirm, onCancel }) {
  * covered as you drag a bullet in is the point of the whole page.
  */
 export default function Builder() {
-  const [drafts, setDrafts] = useState([])
-  const [draftId, setDraftId] = useState(null)
-  const [draft, setDraft] = useState(null)
+  const [instanceId, setInstanceId] = useState(null)
+  const [instance, setInstance] = useState(null)
   const [bank, setBank] = useState([])
   const [jobPost, setJobPost] = useState(null)
   const [coverage, setCoverage] = useState([])
@@ -144,7 +142,6 @@ export default function Builder() {
   const [rendering, setRendering] = useState(false)
   const [rendered, setRendered] = useState(null)
   // The document's own regions, once it has any. A resume with slots is
-  // composed by rewriting its source; one without is still a draft.
   const [docSlots, setDocSlots] = useState(null)
   const [slotError, setSlotError] = useState(null)
   // Escape unmounts the field, and the blur it fires must not commit.
@@ -172,70 +169,30 @@ export default function Builder() {
 
   const reloadBank = useCallback(async () => setBank(await api.bankEntries()), [])
 
-  /**
-   * Anything waiting on a decision, drift included.
-   *
-   * This GET has a side effect: reading the list is what runs the drift
-   * check, so a reworded bank record surfaces only once somebody asks.
-   */
-  const refreshProposals = useCallback(async (id) => {
-    const pending = (await api.draftProposals(id)).filter((row) => row.status === 'pending')
-    setStanding(pending[0] ?? null)
-  }, [])
-
-  /**
-   * Coverage for whichever half owns this resume.
-   *
-   * A slotted document measures its own slot contents; a draft measures its
-   * body. Routed here rather than at each call site so the four of them
-   * cannot drift apart.
-   */
-  const refreshCoverageFor = async () => {
-    if (slotted && documentId) {
-      setCoverage((await api.resumeCoverage(documentId)).keywords || [])
-      return
-    }
-    await refreshCoverage(draft?.id, Boolean(draft?.job_post_id))
-  }
-
-  const refreshCoverage = useCallback(async (id, hasJobPost) => {
-    // Nothing to measure against until an ad is attached, and asking anyway
-    // would put a permanent error on a draft that is simply not started yet.
-    if (!id || !hasJobPost) {
-      setCoverage([])
-      return
-    }
-    setCoverageLoading(true)
-    try {
-      const report = await api.draftCoverage(id)
-      setCoverage(report?.keywords || [])
-      setError(null)
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setCoverageLoading(false)
-    }
-  }, [])
-
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
-        const [draftRows, bankRows, contactRow, libraryRows] = await Promise.all([
-          api.drafts(),
+        const [libraryRows, bankRows, contactRow] = await Promise.all([
+          api.resumeLibrary(),
           api.bankEntries(),
           api.resumeContact(),
-          api.resumeLibrary(),
         ])
         if (cancelled) return
-        setDrafts(draftRows)
+        setLibrary(libraryRows)
         setBank(bankRows)
         setContact(contactRow)
-        setLibrary(libraryRows)
-        // Arriving from a resume picks that resume's draft, not the newest.
-        const asked = Number(params.get('draft'))
-        const wanted = draftRows.some((row) => row.id === asked) ? asked : null
-        setDraftId(wanted ?? draftRows[0]?.id ?? null)
+        // `?draft=` is what the old links said. Honoured so a bookmark from
+        // before the two halves became one still lands somewhere sensible.
+        const asked = Number(params.get('instance')) || null
+        const viaDraft = Number(params.get('draft')) || null
+        const openable = libraryRows.filter((row) => row.pushed)
+        const wanted =
+          openable.find((row) => row.instance_id === asked)?.instance_id ??
+          openable.find((row) => row.draft_id === viaDraft)?.instance_id ??
+          openable[0]?.instance_id ??
+          null
+        setInstanceId(wanted)
       } catch (err) {
         if (!cancelled) setError(err.message)
       } finally {
@@ -245,86 +202,32 @@ export default function Builder() {
     return () => {
       cancelled = true
     }
+  }, [params])
+
+  /** Everything this page shows, read off the one document it is editing. */
+  const loadDocument = useCallback(async (id) => {
+    // The resume first, on its own. Markers that do not pair up make the
+    // slot call fail, and a page that had not loaded the resume by then
+    // would tell the user there is no resume open rather than show them
+    // what is wrong with the one they have.
+    const detail = await api.resumeInstance(id)
+    setInstance(detail)
+    const rows = await api.resumeSlots(id)
+    setDocSlots(rows)
+    setSlotError(null)
+    const [report, proposals] = await Promise.all([
+      api.resumeCoverage(id),
+      api.resumeProposals(id),
+    ])
+    setJobPost(detail.job_post_id ? await api.jobPost(detail.job_post_id) : null)
+    setCoverage(report.keywords || [])
+    setStanding(proposals.find((row) => row.status === 'pending') ?? null)
   }, [])
 
-  // A draft that has been pushed may already be a slotted document, in which
-  // case the canvas works on the source rather than on the draft's body.
   useEffect(() => {
-    const instanceId = draft?.resume_instance_id
     if (!instanceId) {
+      setInstance(null)
       setDocSlots(null)
-      setSlotError(null)
-      return undefined
-    }
-    let cancelled = false
-    ;(async () => {
-      try {
-        const rows = await api.resumeSlots(instanceId)
-        if (cancelled) return
-        setDocSlots(rows.length ? rows : null)
-        setSlotError(null)
-        if (!rows.length) return
-        // Separately, and deliberately. Everything the right-hand panel reads
-        // hangs off the document now, but a panel that failed to load is not
-        // a reason to blank the canvas that loaded fine.
-        try {
-          const [instance, report, proposals] = await Promise.all([
-            api.resumeInstance(instanceId),
-            api.resumeCoverage(instanceId),
-            api.resumeProposals(instanceId),
-          ])
-          if (cancelled) return
-          setJobPost(instance.job_post_id ? await api.jobPost(instance.job_post_id) : null)
-          setCoverage(report.keywords || [])
-          setStanding(proposals.find((row) => row.status === 'pending') ?? null)
-        } catch (panelErr) {
-          if (!cancelled) setError(panelErr.message)
-        }
-      } catch (err) {
-        // A 409 means the markers do not pair up, which is a state the
-        // composer cannot act on and the user has to see rather than a
-        // document that silently looks like it has no slots.
-        if (!cancelled) {
-          setDocSlots(err.status === 409 ? [] : null)
-          setSlotError(err.status === 409 ? err.message : null)
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [draft?.resume_instance_id, draft?.updated_at])
-
-  // Which half of the app a resume belongs to. A document with slots is
-  // composed, tailored and measured through its own source; one without
-  // is still a draft.
-  const slotted = Boolean(docSlots)
-  const documentId = draft?.resume_instance_id
-
-  const refreshSlots = (rows) => {
-    setDocSlots(rows.length ? rows : null)
-    setSlotError(null)
-  }
-
-  const placeInSlot = (key, position) =>
-    act(async () => {
-      if (!draggingEntry) return
-      refreshSlots(
-        await api.placeInResumeSlot(draft.resume_instance_id, key, {
-          entry_id: draggingEntry.id,
-          position,
-        }),
-      )
-    })
-
-  const setSlotBlocks = (key, blocks) =>
-    act(async () => {
-      refreshSlots(await api.writeResumeSlot(draft.resume_instance_id, key, blocks))
-    })
-
-  useEffect(() => {
-    if (!draftId) {
-      setDraft(null)
       setJobPost(null)
       setCoverage([])
       setStanding(null)
@@ -333,25 +236,23 @@ export default function Builder() {
     let cancelled = false
     ;(async () => {
       try {
-        const detail = await api.draft(draftId)
-        if (cancelled) return
-        setDraft(detail)
-        setJobPost(detail.job_post_id ? await api.jobPost(detail.job_post_id) : null)
-        if (cancelled) return
-        setError(null)
-        await Promise.all([
-          refreshCoverage(detail.id, Boolean(detail.job_post_id)),
-          refreshProposals(detail.id),
-        ])
+        if (!cancelled) await loadDocument(instanceId)
       } catch (err) {
-        if (!cancelled) setError(err.message)
+        if (cancelled) return
+        // A 409 is markers that do not pair up: a state the composer cannot
+        // act on, which the user has to see rather than a document that
+        // silently looks like it has none.
+        setDocSlots([])
+        setSlotError(err.status === 409 ? err.message : null)
+        if (err.status !== 409) setError(err.message)
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [draftId, refreshCoverage, refreshProposals])
+  }, [instanceId, loadDocument])
 
+  /** Every write goes through here, so one failure reads the same as any other. */
   const act = async (fn) => {
     setBusy(true)
     try {
@@ -364,35 +265,34 @@ export default function Builder() {
     }
   }
 
-  /** The single write path for the document. Optimistic, so a drop feels instant. */
-  const commit = useCallback(
-    async (body) => {
-      if (!draft) return
-      setDraft((current) => ({ ...current, body }))
-      try {
-        const saved = await api.updateDraft(draft.id, { body })
-        setDraft((current) => (current?.id === saved.id ? { ...current, ...saved } : current))
-        setError(null)
-        await refreshCoverage(draft.id, Boolean(draft.job_post_id))
-      } catch (err) {
-        setError(err.message)
-      }
-    },
-    [draft, refreshCoverage],
-  )
+  const refreshSlots = (rows) => {
+    setDocSlots(rows)
+    setSlotError(null)
+  }
 
-  const placeEntry = (entryId, sectionRef) =>
+  const placeInSlot = (key, position) =>
     act(async () => {
-      setDraft(await api.placeDraftEntry(draft.id, { entry_id: entryId, section_ref: sectionRef }))
-      await refreshCoverage(draft.id, Boolean(draft.job_post_id))
+      if (!draggingEntry) return
+      refreshSlots(
+        await api.placeInResumeSlot(instanceId, key, {
+          entry_id: draggingEntry.id,
+          position,
+        }),
+      )
+      setCoverage((await api.resumeCoverage(instanceId)).keywords || [])
     })
 
-  const renameDraft = (name) => {
-    if (!draft || !name || name === draft.name) return
+  const setSlotBlocks = (key, blocks) =>
     act(async () => {
-      const saved = await api.updateDraft(draft.id, { name })
-      setDraft((current) => ({ ...current, ...saved }))
-      setDrafts(await api.drafts())
+      refreshSlots(await api.writeResumeSlot(instanceId, key, blocks))
+      setCoverage((await api.resumeCoverage(instanceId)).keywords || [])
+    })
+
+  const rename = (name) => {
+    if (!instance || !name || name === instance.name) return
+    act(async () => {
+      setInstance(await api.updateResumeInstance(instance.id, { name }))
+      setLibrary(await api.resumeLibrary())
     })
   }
 
@@ -400,9 +300,9 @@ export default function Builder() {
     act(async () => {
       setContact(await api.saveResumeContact(body))
       setEditingContact(false)
-      // The heading is part of what a push writes, so a draft already pushed
-      // is now behind. Re-reading the draft is what refreshes that warning.
-      if (draftId) setDraft(await api.draft(draftId))
+      // The heading is part of the document, so changing it changes what the
+      // page renders. Re-reading is what puts the new one on screen.
+      if (instanceId) await loadDocument(instanceId)
     })
 
   /**
@@ -412,22 +312,20 @@ export default function Builder() {
    * that can open it. Hiding those would make this list quietly different
    * from the one on the other surface.
    */
-  const switcherOptions = library.map((row) => ({
-    value: row.composed ? `draft:${row.draft_id}` : `instance:${row.instance_id}`,
-    label: row.name,
-  }))
+  // Only a resume with a document behind it can be opened here. There is no
+  // other kind any more; the switcher lists what the rail lists.
+  const switcherOptions = library
+    .filter((row) => row.pushed)
+    .map((row) => ({ value: String(row.instance_id), label: row.name }))
 
-  const openRow = (value) => {
-    const [kind, id] = String(value).split(':')
-    if (kind === 'draft') setDraftId(Number(id))
-    else navigate(`/resumes?instance=${id}`)
-  }
+  const openRow = (value) => setInstanceId(Number(value) || null)
 
-  const createDraft = () =>
+  /** A blank resume: an empty slotted skeleton, composable from the start. */
+  const createResume = () =>
     act(async () => {
-      const created = await api.createDraft({ name: 'New resume' })
-      setDrafts(await api.drafts())
-      setDraftId(created.id)
+      const created = await api.createResumeInstance({ name: 'New resume', blank: true })
+      setLibrary(await api.resumeLibrary())
+      setInstanceId(created.id)
     })
 
   const saveJobPost = (body) =>
@@ -437,21 +335,15 @@ export default function Builder() {
       setJobPost(post)
       // The ad hangs off whichever half is the resume. A slotted document
       // is tailored and measured through its own source, so attaching it to
-      // the draft behind it would leave both looking at nothing.
-      if (slotted && documentId) {
-        await api.updateResumeInstance(documentId, { job_post_id: post.id })
-        await refreshCoverageFor()
-        return
-      }
-      const saved = await api.updateDraft(draft.id, { job_post_id: post.id })
-      setDraft((current) => ({ ...current, ...saved }))
+      await api.updateResumeInstance(instanceId, { job_post_id: post.id })
+      await loadDocument(instanceId)
     })
 
   const extractKeywords = async () => {
     setExtracting(true)
     try {
       setJobPost(await api.extractJobKeywords(jobPost.id))
-      await refreshCoverage(draft.id, true)
+      setCoverage((await api.resumeCoverage(instanceId)).keywords || [])
       setError(null)
     } catch (err) {
       setError(err.message)
@@ -465,7 +357,7 @@ export default function Builder() {
   const tailor = async () => {
     setGenerating(true)
     try {
-      setProposal(slotted ? await api.tailorResume(documentId) : await api.tailorDraft(draft.id))
+      setProposal(await api.tailorResume(instanceId))
       setError(null)
     } catch (err) {
       setError(err.message)
@@ -476,21 +368,12 @@ export default function Builder() {
 
   const resolveProposal = (operations) =>
     act(async () => {
-      const body = operations ? { action: 'apply', operations } : { action: 'dismiss' }
-      if (slotted) {
-        await api.resolveResumeProposal(proposal.id, body)
-        setProposal(null)
-        refreshSlots(await api.resumeSlots(documentId))
-        setCoverage((await api.resumeCoverage(documentId)).keywords || [])
-        return
-      }
-      const updated = await api.resolveProposal(proposal.id, body)
-      if (updated?.id) setDraft(updated)
+      await api.resolveResumeProposal(
+        proposal.id,
+        operations ? { action: 'apply', operations } : { action: 'dismiss' },
+      )
       setProposal(null)
-      await Promise.all([
-        refreshCoverage(draft.id, Boolean(draft.job_post_id)),
-        refreshProposals(draft.id),
-      ])
+      await loadDocument(instanceId)
     })
 
   const runImport = async () => {
@@ -521,8 +404,7 @@ export default function Builder() {
       await syncBullets(saved.id, existing?.bullets || [], bullets)
       await reloadBank()
       setEditing(null)
-      // Rewording a record here is what puts a draft out of date with it.
-      if (draft) await refreshProposals(draft.id)
+      if (instanceId) await loadDocument(instanceId)
     })
 
   const deleteEntry = async () => {
@@ -545,20 +427,16 @@ export default function Builder() {
     })
   }
 
-  const remember = (result) =>
-    setDraft((current) => ({
-      ...current,
-      pushed_at: result?.pushed_at ?? current.pushed_at,
-      resume_instance_id: result?.resume_instance_id ?? current.resume_instance_id,
-    }))
-
-  /** Push, compile, and show the page, without leaving for the Resumes tab. */
-  const pushAndRender = async () => {
+  /**
+   * Compile what is already saved, and show the page.
+   *
+   * There is nothing to push any more. Editing the canvas writes the
+   * document, so rendering is only ever a compile of what is already there.
+   */
+  const render = async () => {
     setRendering(true)
     try {
-      const result = await api.pushDraft(draft.id)
-      remember(result)
-      const compiled = await api.compileResumeInstance(result.resume_instance_id)
+      const compiled = await api.compileResumeInstance(instanceId)
       setRendered(
         compiled.has_pdf
           ? { url: api.resumePdfUrl(compiled.id, { version: compiled.compiled_at || '' }) }
@@ -566,41 +444,11 @@ export default function Builder() {
       )
       setError(null)
     } catch (err) {
-      // A 409 means a hand-edit is in the way, which the Push button already
-      // explains and offers to resolve. Saying it twice, differently, would not.
-      setRendered({ error: err.status === 409 ? 'Push it first: that resume was edited by hand.' : err.message })
+      setRendered({ error: err.message })
     } finally {
       setRendering(false)
     }
   }
-
-  const push = () =>
-    act(async () => {
-      let edited = null
-      try {
-        remember(await api.pushDraft(draft.id))
-        return
-      } catch (err) {
-        if (err.status !== 409) throw err
-        edited = err.detail?.current_latex ?? ''
-      }
-      // The LaTeX editor is still the escape hatch, so a hand-edit there is
-      // shown before it is replaced, rather than described and guessed at.
-      const confirmed = await confirm({
-        title: 'That resume was edited by hand',
-        body: (
-          <>
-            Pushing again replaces the whole document with what is on the canvas. This is what
-            is in that resume now:
-            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded border border-outline-variant bg-surface p-2 font-code text-data">
-              {edited}
-            </pre>
-          </>
-        ),
-        confirmLabel: 'Replace it',
-      })
-      if (confirmed) remember(await api.pushDraft(draft.id, true))
-    })
 
   const terms = coverage.map((item) => item.term)
 
@@ -608,19 +456,19 @@ export default function Builder() {
     <>
       <SurfaceToggle
         active="compose"
-        draftId={draft?.id}
-        instanceId={draft?.resume_instance_id}
+        draftId={instance?.draft_id}
+        instanceId={instance?.id}
       />
       {/* One position, two modes. Showing the name in a field beside a
           switcher that also showed it read as two inputs for the same thing. */}
-      {renaming && draft ? (
+      {renaming && instance ? (
         <input
           autoFocus
           className="field w-56"
-          defaultValue={draft.name}
+          defaultValue={instance.name}
           aria-label="Resume name"
           onBlur={(event) => {
-            if (!cancelRename.current) renameDraft(event.target.value.trim())
+            if (!cancelRename.current) rename(event.target.value.trim())
             cancelRename.current = false
             setRenaming(false)
           }}
@@ -634,14 +482,14 @@ export default function Builder() {
         />
       ) : (
         <Dropdown
-          value={draft ? `draft:${draft.id}` : ''}
+          value={instance ? String(instance.id) : ''}
           onChange={openRow}
           options={switcherOptions}
           ariaLabel="Switch resume"
           className="w-56"
         />
       )}
-      {draft && !renaming ? (
+      {instance && !renaming ? (
         <button
           type="button"
           className="btn"
@@ -652,7 +500,7 @@ export default function Builder() {
           <EditIcon />
         </button>
       ) : null}
-      <button type="button" className="btn" onClick={createDraft} disabled={busy} title="Start another resume">
+      <button type="button" className="btn" onClick={createResume} disabled={busy} title="Start another resume">
         <PlusIcon />
         New
       </button>
@@ -665,17 +513,6 @@ export default function Builder() {
         >
           Review {standing.operations.length} change
           {standing.operations.length === 1 ? '' : 's'}
-        </button>
-      ) : null}
-      {draft ? (
-        <button
-          type="button"
-          className="btn"
-          onClick={push}
-          disabled={busy}
-          title="Write this draft into a resume version you can render"
-        >
-          Push to resume
         </button>
       ) : null}
 
@@ -727,46 +564,34 @@ export default function Builder() {
           max={BANK_WIDTH.max}
         />
 
-        {!draft ? (
+        {!instance ? (
           <div className="flex flex-1 items-center justify-center p-10 text-center">
             <div className="max-w-md space-y-3">
               <p className="text-on-surface-variant">
                 No resume in progress. Start one, paste the ad you are writing it for, and compose it
                 from the records on the left.
               </p>
-              <button type="button" className="btn btn-primary" onClick={createDraft} disabled={busy}>
+              <button type="button" className="btn btn-primary" onClick={createResume} disabled={busy}>
                 <PlusIcon />
                 Start a resume
               </button>
             </div>
           </div>
         ) : (
-          // The coverage pane comes with the draft: an ad pasted before there
+          // The coverage pane comes with the resume: an ad pasted before there
           // is anything to measure it against has nowhere to attach.
           <>
             <div className="min-w-0 flex-1">
-              {docSlots || slotError ? (
-                <SlotCanvas
-                  slots={docSlots || []}
-                  terms={terms}
-                  droppingEntry={draggingEntry}
-                  error={slotError}
-                  onPlace={placeInSlot}
-                  onBlocks={setSlotBlocks}
-                />
-              ) : (
-              <DraftCanvas
-                body={draft.body}
-                bank={bank}
+              <SlotCanvas
+                slots={docSlots || []}
                 terms={terms}
                 droppingEntry={draggingEntry}
-                focusedPlacement={focusedPlacement}
+                error={slotError}
                 contact={contact}
-                onChange={commit}
-                onPlace={placeEntry}
+                onPlace={placeInSlot}
+                onBlocks={setSlotBlocks}
                 onEditContact={() => setEditingContact(true)}
               />
-              )}
             </div>
 
             <ResizeHandle
@@ -796,13 +621,8 @@ export default function Builder() {
                 onLocate={setFocusedPlacement}
                 onTailor={tailor}
                 preview={
-                  draft
-                    ? {
-                        ...rendered,
-                        rendering,
-                        onRender: pushAndRender,
-                        instanceId: draft.resume_instance_id,
-                      }
+                  instance
+                    ? { ...rendered, rendering, onRender: render, instanceId: instance.id }
                     : null
                 }
               />
@@ -879,7 +699,6 @@ export default function Builder() {
         {proposal ? (
           <ProposalReview
             proposal={proposal}
-            body={draft?.body}
             bank={bank}
             busy={busy}
             slots={docSlots}
