@@ -55,6 +55,9 @@ CREATE TABLE IF NOT EXISTS resume_instances (
     compile_log TEXT,
     compile_errors TEXT,           -- JSON array of {line, message}
     is_default INTEGER NOT NULL DEFAULT 0,  -- the variant used for scoring
+    -- The ad this document is written for, which is what the keyword coverage
+    -- and the tailoring pass measure against.
+    job_post_id INTEGER REFERENCES job_posts(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -269,6 +272,21 @@ CREATE TABLE IF NOT EXISTS draft_proposals (
     resolved_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS resume_proposals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    resume_instance_id INTEGER NOT NULL REFERENCES resume_instances(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending',   -- 'pending' | 'applied' | 'dismissed'
+    summary TEXT,
+    operations TEXT NOT NULL DEFAULT '[]',    -- JSON array of ops, each with its own accept state
+    -- The slots as they stood when the offer was made. An operation names a
+    -- block by its position, so a document that moved underneath would have
+    -- the offer land on the wrong lines. Applying against a different
+    -- fingerprint is refused rather than attempted.
+    fingerprint TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    resolved_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_opportunities_score ON opportunities(relevance_score);
 CREATE INDEX IF NOT EXISTS idx_opportunities_source ON opportunities(source_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_applications_opportunity ON applications(opportunity_id);
@@ -467,6 +485,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
             # therefore clears the links in code rather than relying on
             # ON DELETE SET NULL, so both shapes behave the same.
             "resume_instance_id": "INTEGER",
+        },
+        "resume_instances": {
+            # Plain integer on upgraded databases, the same as the column
+            # above it: only a freshly created table carries the REFERENCES.
+            "job_post_id": "INTEGER",
         },
         "sources": {
             "search_query": "TEXT",

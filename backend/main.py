@@ -22,6 +22,7 @@ import bank as bank_module
 import contact as contact_module
 import library as library_module
 import compose as compose_module
+import slot_tailor as slot_tailor_module
 import slots as slots_module
 import drafts as drafts_module
 import favicons as favicons_module
@@ -76,6 +77,8 @@ from models import (
     LibraryResume,
     ResumeContact,
     SlotMarkers,
+    SlotProposal,
+    SlotProposalResolve,
     SlotPlacement,
     SlotWrite,
     ResumeDraft,
@@ -1965,6 +1968,38 @@ def place_in_resume_slot(instance_id: int, key: str, payload: SlotPlacement) -> 
     except slots_module.SlotError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return [DocumentSlot(**row) for row in rows]
+
+
+@app.post("/api/resumes/{instance_id}/tailor", response_model=SlotProposal)
+def tailor_resume(instance_id: int) -> SlotProposal:
+    """Offer a set of changes drawn only from what the bank already holds."""
+    try:
+        return SlotProposal(**slot_tailor_module.propose(instance_id))
+    except resumes_module.ResumeNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except slot_tailor_module.TailorError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ClaudeUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/resumes/{instance_id}/proposals", response_model=list[SlotProposal])
+def list_resume_proposals(instance_id: int) -> list[SlotProposal]:
+    return [SlotProposal(**row) for row in slot_tailor_module.list_proposals(instance_id)]
+
+
+@app.post("/api/resume-proposals/{proposal_id}/resolve", response_model=SlotProposal)
+def resolve_resume_proposal(proposal_id: int, payload: SlotProposalResolve) -> SlotProposal:
+    """Record the decision and run only what was accepted."""
+    try:
+        if payload.action == "dismiss":
+            return SlotProposal(**slot_tailor_module.dismiss_proposal(proposal_id))
+        ops = [op.model_dump() for op in payload.operations] if payload.operations else None
+        return SlotProposal(**slot_tailor_module.apply_proposal(proposal_id, ops))
+    except slot_tailor_module.TailorError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except slots_module.SlotError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/slot-markers", response_model=SlotMarkers)

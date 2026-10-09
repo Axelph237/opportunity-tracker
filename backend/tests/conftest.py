@@ -62,7 +62,7 @@ REAL_DB_PATH = REAL_PROJECT_ROOT / "data" / "opportunities.db"
 # claude guard below covers them the moment they land rather than the day
 # someone remembers to extend the tuple.
 _LATER_AI_MODULES = []
-for _name in ("jobposts", "tailor"):
+for _name in ("jobposts", "tailor", "slot_tailor"):
     try:
         _LATER_AI_MODULES.append(importlib.import_module(_name))
     except ModuleNotFoundError:
