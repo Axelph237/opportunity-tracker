@@ -71,6 +71,10 @@ class Block:
     heading: Optional[str] = None
     args: list[str] = field(default_factory=list)
     bullets: list[str] = field(default_factory=list)
+    # Whether this sat inside the entry list. Tracked so a line written
+    # outside it comes back outside it: re-emitting everything inside would
+    # quietly move someone's own LaTeX into an itemize.
+    in_list: bool = True
 
     def as_dict(self) -> dict[str, Any]:
         """Both forms of the text, deliberately.
@@ -88,6 +92,7 @@ class Block:
             "bullets": list(self.bullets),
             "args_text": [strip_latex(arg) for arg in self.args],
             "bullets_text": [strip_latex(text) for text in self.bullets],
+            "in_list": self.in_list,
         }
 
 
@@ -182,6 +187,10 @@ def find(source: str, shape: Optional[dict[str, str]] = None) -> list[Slot]:
 _HEADING_ARITY = {"resumeSubheading": 4, "resumeProjectHeading": 2}
 _ITEM_OPEN = r"\resumeItemListStart"
 _ITEM_CLOSE = r"\resumeItemListEnd"
+# The list a slot's entries live in. Inside the region rather than around
+# it, because an `itemize` with no `\item` in it is a LaTeX error, so a slot
+# that does not own its wrapper cannot be empty and a blank resume could not
+# compile at all.
 _WRAPPER = (r"\resumeSubHeadingListStart", r"\resumeSubHeadingListEnd")
 
 
@@ -229,11 +238,16 @@ def parse(body: str) -> list[Block]:
     blocks: list[Block] = []
     cursor = 0
     pending = 0  # where the current run of unrecognised text began
+    # A body with no wrapper in it at all is a bare run of entries, which
+    # belong in a list: that is what a freshly rendered record looks like.
+    # A body that does have one is tracked precisely, so a line written
+    # outside it stays outside.
+    depth = {"in": not any(token in body for token in _WRAPPER)}
 
     def flush(upto: int) -> None:
         raw = body[pending:upto]
         if raw.strip():
-            blocks.append(Block(kind="opaque", raw=raw))
+            blocks.append(Block(kind="opaque", raw=raw, in_list=depth["in"]))
 
     while cursor < len(body):
         if body[cursor] != "\\":
@@ -244,6 +258,14 @@ def parse(body: str) -> list[Block]:
             cursor += 1
             continue
         name = name_match.group(1)
+        if "\\" + name in _WRAPPER:
+            # Structural, and the composer's to re-emit. Kept out of the
+            # blocks so reordering them cannot strand a list open.
+            flush(cursor)
+            depth["in"] = "\\" + name == _WRAPPER[0]
+            cursor += name_match.end()
+            pending = cursor
+            continue
         arity = _HEADING_ARITY.get(name)
         if arity is None:
             cursor += name_match.end()
@@ -256,7 +278,8 @@ def parse(body: str) -> list[Block]:
         bullets, after = _bullets(body, after)
         flush(cursor)
         blocks.append(
-            Block(kind="entry", raw=body[cursor:after], heading=name, args=args, bullets=bullets)
+            Block(kind="entry", raw=body[cursor:after], heading=name, args=args,
+                  bullets=bullets, in_list=depth["in"])
         )
         cursor = after
         pending = after
@@ -293,17 +316,33 @@ def _bullets(body: str, start: int) -> tuple[list[str], int]:
 
 def render(blocks: list[Block], *, indent: str = "  ") -> str:
     """Blocks back to LaTeX. An opaque block is reproduced, never reformatted."""
-    out: list[str] = []
-    for block in blocks:
+    def one(block: Block) -> str:
         if block.kind != "entry":
-            out.append(block.raw.strip("\n"))
-            continue
+            return block.raw.strip("\n")
         lines = ["\\" + (block.heading or "") + "".join(f"{{{arg}}}" for arg in block.args)]
         if block.bullets:
             lines.append(_ITEM_OPEN)
             lines += [f"{indent}\\resumeItem{{{text}}}" for text in block.bullets]
             lines.append(_ITEM_CLOSE)
-        out.append("\n".join(lines))
+        return "\n".join(lines)
+
+    # One pass, opening the list when a run of listed blocks starts and
+    # closing it when the run ends. Order is preserved exactly, so a line
+    # written outside the list is written back outside it, and a region with
+    # nothing listed emits no list at all because an empty one will not
+    # compile.
+    out: list[str] = []
+    listing = False
+    for block in blocks:
+        if block.in_list and not listing:
+            out.append(_WRAPPER[0])
+            listing = True
+        elif not block.in_list and listing:
+            out.append(_WRAPPER[1])
+            listing = False
+        out.append(one(block))
+    if listing:
+        out.append(_WRAPPER[1])
     return "\n".join(out)
 
 

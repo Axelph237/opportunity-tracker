@@ -18,16 +18,20 @@ DOC = r"""\documentclass{article}
 \begin{document}
 \section{Experience}
 % <<slot experience>>
+\resumeSubHeadingListStart
 \resumeSubheading{UChicago PME}{Jun 2025 -- Present}{Research Assistant}{Chicago, IL}
 \resumeItemListStart
   \resumeItem{Cut epoch time 38\% on a \textbf{PyTorch} pipeline}
   \resumeItem{Built data ingestion on Kubernetes}
 \resumeItemListEnd
+\resumeSubHeadingListEnd
 % <</slot>>
 \section{By hand}
 Nothing in here is the composer's business.
 % <<slot projects>>
+\resumeSubHeadingListStart
 \resumeProjectHeading{\textbf{Delphi}}{2026}
+\resumeSubHeadingListEnd
 % <</slot>>
 \end{document}
 """
@@ -262,3 +266,42 @@ def test_a_block_carries_the_text_as_the_page_reads_it(db_path):
     assert block["bullets_text"][0] == "Cut epoch time 38% on a PyTorch pipeline"
     # The raw pair is what gets written back, so it must survive untouched.
     assert block["args"][0] == "UChicago PME"
+
+
+# --------------------------------------------- the list the slot owns
+
+def test_a_region_with_nothing_in_it_emits_no_list(db_path):
+    """An `itemize` with no `\\item` is a LaTeX error, so a region that owned
+    its wrapper unconditionally could never be emptied and a blank resume
+    could not be made at all."""
+    assert slots.render([]) == ""
+
+
+def test_a_bare_run_of_entries_is_given_a_list(db_path):
+    """What a freshly rendered record looks like: no wrapper of its own,
+    because an entry belongs in a list wherever it lands."""
+    parsed = slots.parse(r"\resumeSubheading{A}{B}{C}{D}")
+
+    assert [block.in_list for block in parsed] == [True]
+    assert slots.render(parsed).startswith(r"\resumeSubHeadingListStart")
+
+
+def test_a_line_written_after_the_list_is_written_back_after_it(db_path):
+    """Re-emitting everything inside the wrapper would quietly move someone's
+    own LaTeX into an itemize."""
+    body = (
+        "\\resumeSubHeadingListStart\n\\resumeSubheading{A}{B}{C}{D}\n"
+        "\\resumeSubHeadingListEnd\n\\hrule"
+    )
+
+    out = slots.render(slots.parse(body))
+
+    assert out.index(r"\resumeSubHeadingListEnd") < out.index(r"\hrule")
+
+
+def test_a_line_written_before_the_list_stays_before_it(db_path):
+    body = "\\hrule\n\\resumeSubHeadingListStart\n\\resumeSubheading{A}{B}{C}{D}\n\\resumeSubHeadingListEnd"
+
+    out = slots.render(slots.parse(body))
+
+    assert out.index(r"\hrule") < out.index(r"\resumeSubHeadingListStart")

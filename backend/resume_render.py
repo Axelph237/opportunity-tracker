@@ -161,10 +161,10 @@ def render_section(section: dict, markers: Optional[dict[str, str]] = None) -> s
     `itemize`, and an empty one fails the compile that would have shown the
     user a resume with a stray blank heading.
 
-    With `markers`, the entries are wrapped in a slot so a composer can find
-    them again. The markers go inside the list, never around it: an entry
-    prints an `\\item`, so a slot the list did not enclose would compile to
-    "Lonely \\item" the moment anything was placed in it.
+    With `markers`, the whole list is wrapped in a slot so a composer can
+    find it again. The list goes inside the region, not around it: an
+    `itemize` with no `\\item` does not compile, so a slot that did not own
+    its list could never be emptied.
     """
     rendered = []
     for placement in section.get("placements") or []:
@@ -173,17 +173,15 @@ def render_section(section: dict, markers: Optional[dict[str, str]] = None) -> s
             rendered.append(block)
     if not rendered and not markers:
         return ""
+    listed = (
+        [r"\resumeSubHeadingListStart", *rendered, r"\resumeSubHeadingListEnd"]
+        if rendered
+        else []
+    )
     if markers:
         key = section.get("key") or section.get("label") or "section"
-        rendered = [markers["open"].format(name=key), *rendered, markers["close"]]
-    return "\n".join(
-        [
-            rf"\section{{{escape(section.get('label'))}}}",
-            r"\resumeSubHeadingListStart",
-            *rendered,
-            r"\resumeSubHeadingListEnd",
-        ]
-    )
+        listed = [markers["open"].format(name=key), *listed, markers["close"]]
+    return "\n".join([rf"\section{{{escape(section.get('label'))}}}", *listed])
 
 
 def render_contact(contact: dict) -> str:
@@ -237,9 +235,25 @@ def render_document(
             f"The resume template has no {BODY_MARKER} marker, so there is nowhere "
             "to put the draft. Add the marker where the body belongs."
         )
+    return fill(source, render_body(body, markers), contact)
+
+
+def fill(template: str, body_latex: str, contact: Optional[dict] = None) -> str:
+    """Put a body and a heading block into a template.
+
+    The one place the markers are substituted, so a caller with LaTeX of its
+    own does not have to repeat the rules about which marker is optional and
+    which occurrence wins.
+    """
+    source = template or ""
+    if BODY_MARKER not in source:
+        raise ValueError(
+            f"The resume template has no {BODY_MARKER} marker, so there is nowhere "
+            "to put the draft. Add the marker where the body belongs."
+        )
     if CONTACT_MARKER in source:
         source = source.replace(CONTACT_MARKER, render_contact(contact or {}), 1)
     # The first marker is where the body belongs. Replacing all of them would
     # print the whole resume once per marker; the ones left behind are LaTeX
     # comments and cost the document nothing.
-    return source.replace(BODY_MARKER, render_body(body, markers), 1)
+    return source.replace(BODY_MARKER, body_latex, 1)
